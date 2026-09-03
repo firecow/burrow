@@ -3,7 +3,7 @@ module github.com/firecow/burrow
 go 1.26.0
 
 require (
-	github.com/coder/websocket v1.8.14
+	github.com/coder/websocket v1.8.15
 	github.com/google/uuid v1.6.0
 	github.com/quic-go/quic-go v0.59.0
 	github.com/spf13/cobra v1.10.2
