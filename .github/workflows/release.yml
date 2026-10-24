@@ -21,5 +21,28 @@ jobs:
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ghcr.io/firecow/burrow:${{ github.ref_name }}
+
+  binaries:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version: "1.27"
+      - shell: bash
+        run: |
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64 freebsd/amd64; do
+            os=${target%/*}
+            arch=${target#*/}
+            extension=$([ "$os" = windows ] && echo .exe || echo "")
+            CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -ldflags="-s -w" -o "dist/burrow-$os-$arch$extension" ./cmd/burrow
+          done
+          cd dist && sha256sum burrow-* > sha256sums.txt
+      - run: gh release create "$GITHUB_REF_NAME" --verify-tag --notes-from-tag dist/*
+        env:
+          GH_TOKEN: ${{ github.token }}

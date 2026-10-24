@@ -15,6 +15,10 @@ QUIC tunnel server. Must be reachable by all lings.
 ### ling
 QUIC tunnel client and TCP proxy. Can be completely isolated — only needs outbound connectivity.
 
+## Install
+
+Binaries for Linux, macOS, Windows and FreeBSD are attached to each [release](https://github.com/firecow/burrow/releases), and the container image is `ghcr.io/firecow/burrow`.
+
 ## Quickstart
 
 Install `docker` and run `docker swarm init`
