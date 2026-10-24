@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"math"
 	"net"
@@ -15,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/firecow/burrow/internal/bridge"
 	"github.com/quic-go/quic-go"
 )
 
@@ -435,7 +435,7 @@ func (tunnelSrv *TunnelServer) handleTCPConnection(
 		return
 	}
 
-	bridgeStreams(stream, tcpConn)
+	bridge.Stream(stream, tcpConn)
 }
 
 func (tunnelSrv *TunnelServer) openServiceStream(
@@ -514,23 +514,6 @@ func writeServiceIDHeader(
 	}
 
 	return nil
-}
-
-func bridgeStreams(
-	stream *quic.Stream, tcpConn net.Conn,
-) {
-	done := make(chan struct{})
-
-	go func() {
-		_, _ = io.Copy(stream, tcpConn)
-		_ = stream.Close()
-
-		close(done)
-	}()
-
-	_, _ = io.Copy(tcpConn, stream)
-	stream.CancelRead(0)
-	<-done
 }
 
 func (tunnelSrv *TunnelServer) close() {

@@ -20,9 +20,6 @@ import (
 const tokenBytes = 20
 
 var (
-	// ErrServiceNotFound is returned when a service ID cannot be found in state.
-	ErrServiceNotFound = errors.New("cannot be found in state.services")
-
 	// ErrHostRequired is returned when the host field is empty.
 	ErrHostRequired = errors.New("host field cannot be null or undefined")
 
@@ -36,9 +33,6 @@ var (
 	ErrPreferredLocationRequired = errors.New(
 		"preferred_location field cannot be null or undefined",
 	)
-
-	// ErrServiceUndefined is returned when a referenced service is undefined.
-	ErrServiceUndefined = errors.New("service is undefined or null")
 )
 
 // PutKingRequest is the JSON request body for the PUT /king endpoint.
@@ -66,17 +60,29 @@ type PutLingRequest struct {
 	PreferredLocation string          `json:"preferredLocation"`
 }
 
-// PutLingTunnel represents a tunnel in a ling request.
+// PutLingTunnel represents a tunnel in a ling request, carrying the identity the ling already holds for it.
 type PutLingTunnel struct {
-	Name string `json:"name"`
+	Name       string  `json:"name"`
+	ServiceID  string  `json:"serviceId,omitempty"`
+	Token      string  `json:"token,omitempty"`
+	Host       *string `json:"host,omitempty"`
+	BindPort   *int    `json:"bindPort,omitempty"`
+	RemotePort *int    `json:"remotePort,omitempty"`
 }
 
 // HandleGetState returns an HTTP handler that responds with the current state as JSON.
 func HandleGetState(
 	currentState *state.State,
 	stateMutex *sync.RWMutex,
+	warmup *Warmup,
 ) http.HandlerFunc {
 	return func(writer http.ResponseWriter, _ *http.Request) {
+		if warmup.active() {
+			http.Error(writer, "council is warming up", http.StatusServiceUnavailable)
+
+			return
+		}
+
 		stateMutex.RLock()
 		defer stateMutex.RUnlock()
 
@@ -97,25 +103,16 @@ func HandlePutKing(
 	currentState *state.State,
 	stateMutex *sync.RWMutex,
 	hub *WSHub,
+	warmup *Warmup,
 ) http.HandlerFunc {
 	return func(writer http.ResponseWriter, request *http.Request) {
-		body, err := io.ReadAll(request.Body)
-		if err != nil {
-			http.Error(writer, "failed to read body", http.StatusBadRequest)
-
-			return
-		}
-
 		var req PutKingRequest
 
-		err = json.Unmarshal(body, &req)
-		if err != nil {
-			http.Error(writer, "invalid json", http.StatusBadRequest)
-
-			return
+		err := decodeRequest(request, &req)
+		if err == nil {
+			err = validatePutKingRequest(&req)
 		}
 
-		err = validatePutKingRequest(&req)
 		if err != nil {
 			http.Error(writer, err.Error(), http.StatusBadRequest)
 
@@ -123,22 +120,92 @@ func HandlePutKing(
 		}
 
 		stateMutex.Lock()
-
-		kingReadyErr := processKingReadyServices(
-			request.Context(), currentState, stateMutex, hub,
-			req.ReadyServiceIDs, writer,
-		)
-		if kingReadyErr {
-			return
-		}
-
-		processKingTunnels(
-			request.Context(), currentState, stateMutex, hub, &req,
-		)
-		stateMutex.Unlock()
+		changed := applyKingTunnels(currentState, &req)
+		changed = markReady(
+			currentState,
+			req.ReadyServiceIDs,
+			func(svc *state.Service) *bool { return &svc.KingReady },
+		) ||
+			changed
+		commitChange(request.Context(), currentState, stateMutex, hub, warmup, changed)
 
 		writer.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		_, _ = fmt.Fprint(writer, "ok")
+	}
+}
+
+// HandlePutLing returns an HTTP handler for ling registration/heartbeat.
+func HandlePutLing(
+	currentState *state.State,
+	stateMutex *sync.RWMutex,
+	hub *WSHub,
+	warmup *Warmup,
+) http.HandlerFunc {
+	return func(writer http.ResponseWriter, request *http.Request) {
+		var req PutLingRequest
+
+		err := decodeRequest(request, &req)
+		if err == nil {
+			err = validatePutLingRequest(&req)
+		}
+
+		if err != nil {
+			http.Error(writer, err.Error(), http.StatusBadRequest)
+
+			return
+		}
+
+		stateMutex.Lock()
+		changed := applyLing(currentState, &req)
+		changed = applyLingTunnels(currentState, &req, warmup) || changed
+		changed = markReady(
+			currentState,
+			req.ReadyServiceIDs,
+			func(svc *state.Service) *bool { return &svc.LingReady },
+		) ||
+			changed
+		commitChange(request.Context(), currentState, stateMutex, hub, warmup, changed)
+
+		writer.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = fmt.Fprint(writer, "ok")
+	}
+}
+
+func decodeRequest(request *http.Request, target any) error {
+	body, err := io.ReadAll(request.Body)
+	if err != nil {
+		return fmt.Errorf("reading body: %w", err)
+	}
+
+	err = json.Unmarshal(body, target)
+	if err != nil {
+		return fmt.Errorf("invalid json: %w", err)
+	}
+
+	return nil
+}
+
+func commitChange(
+	ctx context.Context,
+	currentState *state.State,
+	stateMutex *sync.RWMutex,
+	hub *WSHub,
+	warmup *Warmup,
+	changed bool,
+) {
+	publish := changed && !warmup.active()
+	if publish {
+		Provision(currentState)
+	}
+
+	if changed {
+		currentState.Revision++
+	}
+
+	stateMutex.Unlock()
+
+	if publish {
+		hub.Broadcast(ctx)
 	}
 }
 
@@ -154,156 +221,6 @@ func validatePutKingRequest(req *PutKingRequest) error {
 	return nil
 }
 
-func processKingReadyServices(
-	ctx context.Context,
-	currentState *state.State,
-	stateMutex *sync.RWMutex,
-	hub *WSHub,
-	readyServiceIDs []string,
-	writer http.ResponseWriter,
-) bool {
-	for _, serviceID := range readyServiceIDs {
-		svc := FindService(currentState, serviceID)
-		if svc == nil {
-			stateMutex.Unlock()
-
-			http.Error(
-				writer,
-				serviceID+" cannot be found in state.services",
-				http.StatusBadRequest,
-			)
-
-			return true
-		}
-
-		if !svc.KingReady {
-			svc.KingReady = true
-			currentState.Revision++
-			Provision(currentState)
-			stateMutex.Unlock()
-			hub.Broadcast(ctx)
-			stateMutex.Lock()
-		}
-	}
-
-	return false
-}
-
-func processKingTunnels(
-	ctx context.Context,
-	currentState *state.State,
-	stateMutex *sync.RWMutex,
-	hub *WSHub,
-	req *PutKingRequest,
-) {
-	now := currentTimeMillis()
-
-	for _, tunnel := range req.Tunnels {
-		existingKing := FindKing(currentState, tunnel.Ports, req.Host)
-		if existingKing != nil {
-			updateExistingKing(
-				ctx, currentState, stateMutex, hub, existingKing, req, now,
-			)
-
-			continue
-		}
-
-		currentState.Kings = append(currentState.Kings, state.King{
-			BindPort:     tunnel.BindPort,
-			Ports:        tunnel.Ports,
-			Host:         req.Host,
-			ShuttingDown: false,
-			Beat:         now,
-			Location:     req.Location,
-			CertPEM:      req.CertPEM,
-		})
-		currentState.Revision++
-		Provision(currentState)
-		stateMutex.Unlock()
-		hub.Broadcast(ctx)
-		stateMutex.Lock()
-	}
-}
-
-func updateExistingKing(
-	ctx context.Context,
-	currentState *state.State,
-	stateMutex *sync.RWMutex,
-	hub *WSHub,
-	existingKing *state.King,
-	req *PutKingRequest,
-	now int64,
-) {
-	changed := existingKing.ShuttingDown != req.ShuttingDown ||
-		existingKing.CertPEM != req.CertPEM
-	existingKing.ShuttingDown = req.ShuttingDown
-	existingKing.CertPEM = req.CertPEM
-
-	if changed {
-		currentState.Revision++
-		Provision(currentState)
-		stateMutex.Unlock()
-		hub.Broadcast(ctx)
-		stateMutex.Lock()
-	}
-
-	existingKing.Beat = now
-}
-
-// HandlePutLing returns an HTTP handler for ling registration/heartbeat.
-func HandlePutLing(
-	currentState *state.State,
-	stateMutex *sync.RWMutex,
-	hub *WSHub,
-) http.HandlerFunc {
-	return func(writer http.ResponseWriter, request *http.Request) {
-		body, err := io.ReadAll(request.Body)
-		if err != nil {
-			http.Error(writer, "failed to read body", http.StatusBadRequest)
-
-			return
-		}
-
-		var req PutLingRequest
-
-		err = json.Unmarshal(body, &req)
-		if err != nil {
-			http.Error(writer, "invalid json", http.StatusBadRequest)
-
-			return
-		}
-
-		err = validatePutLingRequest(&req)
-		if err != nil {
-			http.Error(writer, err.Error(), http.StatusBadRequest)
-
-			return
-		}
-
-		stateMutex.Lock()
-
-		lingReadyErr := processLingReadyServices(
-			request.Context(), currentState, stateMutex, hub,
-			req.ReadyServiceIDs, writer,
-		)
-		if lingReadyErr {
-			return
-		}
-
-		earlyReturn := processLingTunnels(
-			request.Context(), currentState, stateMutex, hub, writer, &req,
-		)
-		if earlyReturn {
-			return
-		}
-
-		stateMutex.Unlock()
-
-		writer.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		_, _ = fmt.Fprint(writer, "ok")
-	}
-}
-
 func validatePutLingRequest(req *PutLingRequest) error {
 	if req.LingID == "" {
 		return ErrLingIDRequired
@@ -316,143 +233,164 @@ func validatePutLingRequest(req *PutLingRequest) error {
 	return nil
 }
 
-func processLingReadyServices(
-	ctx context.Context,
+func markReady(
 	currentState *state.State,
-	stateMutex *sync.RWMutex,
-	hub *WSHub,
-	readyServiceIDs []string,
-	writer http.ResponseWriter,
+	serviceIDs []string,
+	readyFlag func(*state.Service) *bool,
 ) bool {
-	for _, serviceID := range readyServiceIDs {
+	changed := false
+
+	for _, serviceID := range serviceIDs {
 		svc := FindService(currentState, serviceID)
-		if svc == nil {
-			stateMutex.Unlock()
-
-			http.Error(
-				writer,
-				ErrServiceUndefined.Error(),
-				http.StatusBadRequest,
-			)
-
-			return true
+		if svc == nil || *readyFlag(svc) {
+			continue
 		}
 
-		if !svc.LingReady {
-			svc.LingReady = true
-			currentState.Revision++
-			Provision(currentState)
-			stateMutex.Unlock()
-			hub.Broadcast(ctx)
-			stateMutex.Lock()
-		}
+		*readyFlag(svc) = true
+		changed = true
 	}
 
-	return false
+	return changed
 }
 
-func processLingTunnels(
-	ctx context.Context,
-	currentState *state.State,
-	stateMutex *sync.RWMutex,
-	hub *WSHub,
-	writer http.ResponseWriter,
-	req *PutLingRequest,
-) bool {
+func applyKingTunnels(currentState *state.State, req *PutKingRequest) bool {
+	changed := false
 	now := currentTimeMillis()
 
 	for _, tunnel := range req.Tunnels {
-		earlyReturn := processOneLingTunnel(
-			ctx, currentState, stateMutex, hub, writer, req, tunnel, now,
-		)
-		if earlyReturn {
-			return true
+		king := FindKing(currentState, tunnel.Ports, req.Host)
+		if king == nil {
+			currentState.Kings = append(currentState.Kings, state.King{
+				BindPort:     tunnel.BindPort,
+				Ports:        tunnel.Ports,
+				Host:         req.Host,
+				ShuttingDown: req.ShuttingDown,
+				Beat:         now,
+				Location:     req.Location,
+				CertPEM:      req.CertPEM,
+			})
+			changed = true
+
+			continue
 		}
+
+		if king.ShuttingDown != req.ShuttingDown || king.CertPEM != req.CertPEM {
+			king.ShuttingDown = req.ShuttingDown
+			king.CertPEM = req.CertPEM
+			changed = true
+		}
+
+		king.Beat = now
 	}
 
-	return false
+	return changed
 }
 
-func ensureLingExists(
-	ctx context.Context,
-	currentState *state.State,
-	stateMutex *sync.RWMutex,
-	hub *WSHub,
-	req *PutLingRequest,
-	now int64,
-) {
-	existingLing := FindLing(currentState, req.LingID)
-	if existingLing == nil {
+func applyLing(currentState *state.State, req *PutLingRequest) bool {
+	now := currentTimeMillis()
+
+	ling := FindLing(currentState, req.LingID)
+	if ling == nil {
 		currentState.Lings = append(currentState.Lings, state.Ling{
 			LingID:       req.LingID,
-			ShuttingDown: req.ShuttingDown,
+			ShuttingDown: false,
 			Beat:         now,
 		})
-		existingLing = &currentState.Lings[len(currentState.Lings)-1]
+		ling = &currentState.Lings[len(currentState.Lings)-1]
 	}
 
-	existingLing.Beat = now
+	ling.Beat = now
 
-	if existingLing.ShuttingDown != req.ShuttingDown {
-		existingLing.ShuttingDown = req.ShuttingDown
+	if ling.ShuttingDown == req.ShuttingDown {
+		return false
+	}
 
-		for i := range currentState.Services {
-			if req.ShuttingDown && currentState.Services[i].LingID == req.LingID {
-				currentState.Services[i].LingReady = false
-			}
+	ling.ShuttingDown = req.ShuttingDown
+
+	for i := range currentState.Services {
+		if req.ShuttingDown && currentState.Services[i].LingID == req.LingID {
+			currentState.Services[i].LingReady = false
 		}
-
-		currentState.Revision++
-		Provision(currentState)
-		stateMutex.Unlock()
-		hub.Broadcast(ctx)
-		stateMutex.Lock()
 	}
+
+	return true
 }
 
-func processOneLingTunnel(
-	ctx context.Context,
-	currentState *state.State,
-	stateMutex *sync.RWMutex,
-	hub *WSHub,
-	writer http.ResponseWriter,
-	req *PutLingRequest,
-	tunnel PutLingTunnel,
-	now int64,
-) bool {
-	ensureLingExists(ctx, currentState, stateMutex, hub, req, now)
+func applyLingTunnels(currentState *state.State, req *PutLingRequest, warmup *Warmup) bool {
+	changed := false
 
-	existingService := FindServiceByNameAndLing(
-		currentState, tunnel.Name, req.LingID,
-	)
-	if existingService != nil {
-		stateMutex.Unlock()
-		writer.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		_, _ = fmt.Fprint(writer, "ok")
+	for _, tunnel := range req.Tunnels {
+		if FindServiceByNameAndLing(currentState, tunnel.Name, req.LingID) != nil {
+			continue
+		}
 
-		return true
+		svc := state.Service{
+			ServiceID:         uuid.New().String(),
+			Name:              tunnel.Name,
+			Token:             GenerateToken(),
+			PreferredLocation: req.PreferredLocation,
+			LingID:            req.LingID,
+			LingReady:         false,
+			KingReady:         false,
+			Host:              nil,
+			BindPort:          nil,
+			RemotePort:        nil,
+		}
+
+		if tunnel.ServiceID != "" && tunnel.Token != "" &&
+			FindService(currentState, tunnel.ServiceID) == nil {
+			svc.ServiceID = tunnel.ServiceID
+			svc.Token = tunnel.Token
+
+			if assignmentAvailable(currentState, tunnel, warmup) {
+				svc.Host = tunnel.Host
+				svc.BindPort = tunnel.BindPort
+				svc.RemotePort = tunnel.RemotePort
+			}
+
+			slog.Info(
+				"Adopted service from ling",
+				"name",
+				svc.Name,
+				"service_id",
+				svc.ServiceID,
+				"assigned",
+				svc.BindPort != nil,
+			)
+		}
+
+		currentState.Services = append(currentState.Services, svc)
+		changed = true
 	}
 
-	token := GenerateToken()
-	currentState.Services = append(currentState.Services, state.Service{
-		ServiceID:         uuid.New().String(),
-		Name:              tunnel.Name,
-		Token:             token,
-		PreferredLocation: req.PreferredLocation,
-		LingID:            req.LingID,
-		LingReady:         false,
-		KingReady:         false,
-		Host:              nil,
-		BindPort:          nil,
-		RemotePort:        nil,
-	})
-	currentState.Revision++
-	Provision(currentState)
-	stateMutex.Unlock()
-	hub.Broadcast(ctx)
-	stateMutex.Lock()
+	return changed
+}
 
-	return false
+func assignmentAvailable(currentState *state.State, tunnel PutLingTunnel, warmup *Warmup) bool {
+	if tunnel.Host == nil || tunnel.BindPort == nil || tunnel.RemotePort == nil {
+		return false
+	}
+
+	assignedKing := state.King{
+		BindPort:     *tunnel.BindPort,
+		Host:         *tunnel.Host,
+		Ports:        "",
+		ShuttingDown: false,
+		Beat:         0,
+		Location:     "",
+		CertPEM:      "",
+	}
+	if collectUsedPorts(&assignedKing, currentState)[*tunnel.RemotePort] {
+		return false
+	}
+
+	for _, king := range currentState.Kings {
+		if king.Host == assignedKing.Host && king.BindPort == assignedKing.BindPort {
+			return !king.ShuttingDown
+		}
+	}
+
+	return warmup.active()
 }
 
 // FindService looks up a service by ID in the current state.

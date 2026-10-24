@@ -237,13 +237,25 @@ func restartSubtest(t *testing.T, ctx context.Context, s *stack, name string, re
 	)
 }
 
-func restartStopFirst(t *testing.T, ctx context.Context, s *stack, name string, _ *atomic.Pointer[string]) {
+func restartStopFirst(
+	t *testing.T,
+	ctx context.Context,
+	s *stack,
+	name string,
+	_ *atomic.Pointer[string],
+) {
 	retire(t, ctx, s, name)
 
 	s.containers[name] = startContainer(t, ctx, specForContainer(name))
 }
 
-func restartStartFirst(t *testing.T, ctx context.Context, s *stack, name string, target *atomic.Pointer[string]) {
+func restartStartFirst(
+	t *testing.T,
+	ctx context.Context,
+	s *stack,
+	name string,
+	target *atomic.Pointer[string],
+) {
 	c := startContainer(t, ctx, specForContainer(name))
 
 	if name == "ling-beta" {
@@ -399,10 +411,14 @@ func waitForTraffic(t *testing.T, url string, timeout time.Duration) {
 	t.Fatalf("Traffic did not start flowing through proxy within %s", timeout)
 }
 
-func trafficMonitor(target *atomic.Pointer[string], errors, total *atomic.Int64, stop, finished chan struct{}) {
+func trafficMonitor(
+	target *atomic.Pointer[string],
+	errors, total *atomic.Int64,
+	stop, finished chan struct{},
+) {
 	defer close(finished)
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := &http.Client{Timeout: 3 * time.Second}
 
 	for {
 		select {

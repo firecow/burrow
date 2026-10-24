@@ -18,6 +18,7 @@ func StartCleaner(
 	currentState *state.State,
 	stateMutex *sync.RWMutex,
 	hub *WSHub,
+	warmup *Warmup,
 	stop <-chan struct{},
 ) {
 	ticker := time.NewTicker(1 * time.Second)
@@ -28,7 +29,9 @@ func StartCleaner(
 		case <-stop:
 			return
 		case <-ticker.C:
-			RunCleaner(ctx, currentState, stateMutex, hub)
+			if !warmup.active() {
+				RunCleaner(ctx, currentState, stateMutex, hub)
+			}
 		}
 	}
 }

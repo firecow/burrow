@@ -3,13 +3,14 @@ package ling
 import (
 	"context"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
 	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/firecow/burrow/internal/bridge"
 )
 
 const (
@@ -180,26 +181,7 @@ func (proxy *TCPProxy) handleConn(
 
 	defer proxy.untrackUpstream(addr, upstream)
 
-	done := make(chan struct{})
-
-	go func() {
-		_, _ = io.Copy(upstream, clientConn)
-		closeWrite(upstream)
-
-		close(done)
-	}()
-
-	_, _ = io.Copy(clientConn, upstream)
-	closeWrite(clientConn)
-
-	<-done
-}
-
-func closeWrite(conn net.Conn) {
-	tcpConn, isTCP := conn.(*net.TCPConn)
-	if isTCP {
-		_ = tcpConn.CloseWrite()
-	}
+	bridge.Conns(clientConn, upstream)
 }
 
 func (proxy *TCPProxy) dialUpstream(
