@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/firecow/burrow/internal/bridge"
 	"github.com/quic-go/quic-go"
 )
 
@@ -344,21 +345,7 @@ func handleDataStream(
 		return
 	}
 
-	done := make(chan struct{})
-
-	go func() {
-		_, _ = io.Copy(localConn, stream)
-		closeWrite(localConn)
-
-		close(done)
-	}()
-
-	_, _ = io.Copy(stream, localConn)
-
-	_ = stream.Close()
-	stream.CancelRead(0)
-
-	<-done
+	bridge.Stream(stream, localConn)
 
 	_ = localConn.Close()
 }
