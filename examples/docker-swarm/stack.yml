@@ -12,14 +12,14 @@ networks:
 
 services:
   council:
-    image: ghcr.io/firecow/burrow:0.1.0
+    image: ghcr.io/firecow/burrow:1.0.0
     networks: [host]
     command: council --port 8080
     ports:
       - { target: 8080, published: 8080, protocol: tcp, mode: host }
 
   king1:
-    image: ghcr.io/firecow/burrow:0.1.0
+    image: ghcr.io/firecow/burrow:1.0.0
     networks: [host]
     command:
       king
@@ -33,7 +33,7 @@ services:
       - { target: 5001, published: 5001, protocol: tcp, mode: host }
 
   king2:
-    image: ghcr.io/firecow/burrow:0.1.0
+    image: ghcr.io/firecow/burrow:1.0.0
     networks: [host]
     command:
       king
@@ -51,7 +51,7 @@ services:
 
   # Alpha services
   ling-alpha:
-    image: ghcr.io/firecow/burrow:0.1.0
+    image: ghcr.io/firecow/burrow:1.0.0
     networks: [alpha]
     command:
       ling
@@ -66,7 +66,7 @@ services:
 
   # Beta services
   ling-beta:
-    image: ghcr.io/firecow/burrow:0.1.0
+    image: ghcr.io/firecow/burrow:1.0.0
     networks: [beta]
     command:
       ling
@@ -75,7 +75,7 @@ services:
     deploy: { update_config: { order: start-first, parallelism: 0 } }
   # This requester service should be able to reach echoserver-alpha through ling-beta on port 2184
   debug-requester-beta:
-    image: ghcr.io/firecow/burrow:0.1.0
+    image: ghcr.io/firecow/burrow:1.0.0
     command: ["debug-requester", "--url=http://ling-beta:2184"]
     networks: [beta]
     deploy: { update_config: { order: start-first, parallelism: 0 } }
