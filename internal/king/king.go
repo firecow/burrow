@@ -142,10 +142,10 @@ func parseSingleTunnelArg(arg string) (TunnelConfig, error) {
 	_, err := fmt.Sscanf(bindPortStr, "%d", &bindPort)
 	if err != nil {
 		return TunnelConfig{
-				BindPort: 0, Ports: "",
-			}, fmt.Errorf(
-				"invalid bind_port %s: %w", bindPortStr, err,
-			)
+			BindPort: 0, Ports: "",
+		}, fmt.Errorf(
+			"invalid bind_port %s: %w", bindPortStr, err,
+		)
 	}
 
 	return TunnelConfig{

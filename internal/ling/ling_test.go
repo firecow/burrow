@@ -12,6 +12,11 @@ const (
 	testKingHost     = "10.0.0.1"
 	testKingBindPort = 5000
 	testRemotePort   = 12345
+	testLocalAddr    = "127.0.0.1:8080"
+	testProxyName    = "myproxy"
+	testServiceID    = "svc-1"
+	testTunnelName   = "web"
+	testLingID       = "ling-a"
 )
 
 func TestParseTunnelArgs_Valid(t *testing.T) {
@@ -32,7 +37,7 @@ func TestParseTunnelArgs_Valid(t *testing.T) {
 		t.Errorf("expected name=myservice, got %s", configs[0].Name)
 	}
 
-	if configs[0].LocalAddr != "127.0.0.1:8080" {
+	if configs[0].LocalAddr != testLocalAddr {
 		t.Errorf("expected local_addr=127.0.0.1:8080, got %s", configs[0].LocalAddr)
 	}
 }
@@ -118,7 +123,7 @@ func TestParseProxyArgs_Valid(t *testing.T) {
 		t.Fatalf("expected 1 config, got %d", len(configs))
 	}
 
-	if configs[0].Name != "myproxy" {
+	if configs[0].Name != testProxyName {
 		t.Errorf("expected name=myproxy, got %s", configs[0].Name)
 	}
 
@@ -190,10 +195,10 @@ func TestComputeReadyServiceIDs_MatchingLing(t *testing.T) {
 		Revision: 0,
 		Services: []state.Service{
 			{
-				ServiceID:         "svc-1",
-				Name:              "web",
+				ServiceID:         testServiceID,
+				Name:              testTunnelName,
 				Token:             "",
-				LingID:            "ling-a",
+				LingID:            testLingID,
 				PreferredLocation: "",
 				LingReady:         false,
 				KingReady:         true,
@@ -205,10 +210,10 @@ func TestComputeReadyServiceIDs_MatchingLing(t *testing.T) {
 		Kings: nil,
 		Lings: nil,
 	}
-	tunnelMap := map[string]string{"web": "127.0.0.1:8080"}
+	tunnelMap := map[string]string{testTunnelName: testLocalAddr}
 
-	ids := ling.ComputeReadyServiceIDs(stateSnapshot, "ling-a", tunnelMap)
-	if len(ids) != 1 || ids[0] != "svc-1" {
+	ids := ling.ComputeReadyServiceIDs(stateSnapshot, testLingID, tunnelMap)
+	if len(ids) != 1 || ids[0] != testServiceID {
 		t.Errorf("expected [svc-1], got %v", ids)
 	}
 }
@@ -220,8 +225,8 @@ func TestComputeReadyServiceIDs_NonMatchingLing(t *testing.T) {
 		Revision: 0,
 		Services: []state.Service{
 			{
-				ServiceID:         "svc-1",
-				Name:              "web",
+				ServiceID:         testServiceID,
+				Name:              testTunnelName,
 				Token:             "",
 				LingID:            "ling-b",
 				PreferredLocation: "",
@@ -235,9 +240,9 @@ func TestComputeReadyServiceIDs_NonMatchingLing(t *testing.T) {
 		Kings: nil,
 		Lings: nil,
 	}
-	tunnelMap := map[string]string{"web": "127.0.0.1:8080"}
+	tunnelMap := map[string]string{testTunnelName: testLocalAddr}
 
-	ids := ling.ComputeReadyServiceIDs(stateSnapshot, "ling-a", tunnelMap)
+	ids := ling.ComputeReadyServiceIDs(stateSnapshot, testLingID, tunnelMap)
 	if len(ids) != 0 {
 		t.Errorf("expected empty, got %v", ids)
 	}
@@ -250,10 +255,10 @@ func TestComputeReadyServiceIDs_MissingTunnelEntry(t *testing.T) {
 		Revision: 0,
 		Services: []state.Service{
 			{
-				ServiceID:         "svc-1",
+				ServiceID:         testServiceID,
 				Name:              "db",
 				Token:             "",
-				LingID:            "ling-a",
+				LingID:            testLingID,
 				PreferredLocation: "",
 				LingReady:         false,
 				KingReady:         true,
@@ -265,9 +270,9 @@ func TestComputeReadyServiceIDs_MissingTunnelEntry(t *testing.T) {
 		Kings: nil,
 		Lings: nil,
 	}
-	tunnelMap := map[string]string{"web": "127.0.0.1:8080"}
+	tunnelMap := map[string]string{testTunnelName: testLocalAddr}
 
-	ids := ling.ComputeReadyServiceIDs(stateSnapshot, "ling-a", tunnelMap)
+	ids := ling.ComputeReadyServiceIDs(stateSnapshot, testLingID, tunnelMap)
 	if len(ids) != 0 {
 		t.Errorf("expected empty, got %v", ids)
 	}
@@ -280,10 +285,10 @@ func TestComputeReadyServiceIDs_KingNotReady(t *testing.T) {
 		Revision: 0,
 		Services: []state.Service{
 			{
-				ServiceID:         "svc-1",
-				Name:              "web",
+				ServiceID:         testServiceID,
+				Name:              testTunnelName,
 				Token:             "",
-				LingID:            "ling-a",
+				LingID:            testLingID,
 				PreferredLocation: "",
 				LingReady:         false,
 				KingReady:         false,
@@ -295,9 +300,9 @@ func TestComputeReadyServiceIDs_KingNotReady(t *testing.T) {
 		Kings: nil,
 		Lings: nil,
 	}
-	tunnelMap := map[string]string{"web": "127.0.0.1:8080"}
+	tunnelMap := map[string]string{testTunnelName: testLocalAddr}
 
-	ids := ling.ComputeReadyServiceIDs(stateSnapshot, "ling-a", tunnelMap)
+	ids := ling.ComputeReadyServiceIDs(stateSnapshot, testLingID, tunnelMap)
 	if len(ids) != 0 {
 		t.Errorf("expected empty, got %v", ids)
 	}
@@ -325,11 +330,11 @@ func buildMultipleServicesState() *state.State {
 	return &state.State{
 		Revision: 0,
 		Services: []state.Service{
-			newTestService("svc-1", "web", "ling-a", true),
-			newTestService("svc-2", "api", "ling-a", true),
-			newTestService("svc-3", "web", "ling-b", true),
-			newTestService("svc-4", "db", "ling-a", true),
-			newTestService("svc-5", "web", "ling-a", false),
+			newTestService(testServiceID, testTunnelName, testLingID, true),
+			newTestService("svc-2", "api", testLingID, true),
+			newTestService("svc-3", testTunnelName, "ling-b", true),
+			newTestService("svc-4", "db", testLingID, true),
+			newTestService("svc-5", testTunnelName, testLingID, false),
 		},
 		Kings: nil,
 		Lings: nil,
@@ -342,11 +347,11 @@ func TestComputeReadyServiceIDs_MultipleServices(t *testing.T) {
 	stateSnapshot := buildMultipleServicesState()
 
 	tunnelMap := map[string]string{
-		"web": "127.0.0.1:8080",
-		"api": "127.0.0.1:9090",
+		testTunnelName: testLocalAddr,
+		"api":          "127.0.0.1:9090",
 	}
 
-	ids := ling.ComputeReadyServiceIDs(stateSnapshot, "ling-a", tunnelMap)
+	ids := ling.ComputeReadyServiceIDs(stateSnapshot, testLingID, tunnelMap)
 	if len(ids) != 2 {
 		t.Fatalf("expected 2 ready IDs, got %d: %v", len(ids), ids)
 	}
@@ -357,7 +362,7 @@ func TestComputeReadyServiceIDs_MultipleServices(t *testing.T) {
 		idSet[identifier] = true
 	}
 
-	if !idSet["svc-1"] || !idSet["svc-2"] {
+	if !idSet[testServiceID] || !idSet["svc-2"] {
 		t.Errorf("expected svc-1 and svc-2, got %v", ids)
 	}
 }
@@ -404,17 +409,17 @@ func buildStateChangedState(testCase stateChangedTestCase) *state.State {
 		},
 		Lings: []state.Ling{
 			{
-				LingID:       "ling-a",
+				LingID:       testLingID,
 				ShuttingDown: testCase.lingShuttingDown,
 				Beat:         0,
 			},
 		},
 		Services: []state.Service{
 			{
-				ServiceID:         "svc-1",
-				Name:              "myproxy",
+				ServiceID:         testServiceID,
+				Name:              testProxyName,
 				Token:             "",
-				LingID:            "ling-a",
+				LingID:            testLingID,
 				PreferredLocation: "",
 				LingReady:         testCase.lingReady,
 				KingReady:         testCase.kingReady,
@@ -439,8 +444,8 @@ func TestOnStateChanged_UpdatesProxyTargets(t *testing.T) {
 		expectedTargets:  1,
 	})
 
-	proxy := ling.NewTCPProxy("myproxy", 0)
-	tcpProxies := map[string]*ling.TCPProxy{"myproxy": proxy}
+	proxy := ling.NewTCPProxy(testProxyName, 0)
+	tcpProxies := map[string]*ling.TCPProxy{testProxyName: proxy}
 	tunnelCli := ling.NewTunnelClient()
 
 	ling.OnStateChanged(
@@ -468,8 +473,8 @@ func TestOnStateChanged_IncludesShuttingDownLing(t *testing.T) {
 		expectedTargets:  1,
 	})
 
-	proxy := ling.NewTCPProxy("myproxy", 0)
-	tcpProxies := map[string]*ling.TCPProxy{"myproxy": proxy}
+	proxy := ling.NewTCPProxy(testProxyName, 0)
+	tcpProxies := map[string]*ling.TCPProxy{testProxyName: proxy}
 	tunnelCli := ling.NewTunnelClient()
 
 	ling.OnStateChanged(
@@ -497,8 +502,8 @@ func TestOnStateChanged_ExcludesShuttingDownKing(t *testing.T) {
 		expectedTargets:  0,
 	})
 
-	proxy := ling.NewTCPProxy("myproxy", 0)
-	tcpProxies := map[string]*ling.TCPProxy{"myproxy": proxy}
+	proxy := ling.NewTCPProxy(testProxyName, 0)
+	tcpProxies := map[string]*ling.TCPProxy{testProxyName: proxy}
 	tunnelCli := ling.NewTunnelClient()
 
 	ling.OnStateChanged(
@@ -526,8 +531,8 @@ func TestOnStateChanged_ExcludesNotReady(t *testing.T) {
 		expectedTargets:  0,
 	})
 
-	proxy := ling.NewTCPProxy("myproxy", 0)
-	tcpProxies := map[string]*ling.TCPProxy{"myproxy": proxy}
+	proxy := ling.NewTCPProxy(testProxyName, 0)
+	tcpProxies := map[string]*ling.TCPProxy{testProxyName: proxy}
 	tunnelCli := ling.NewTunnelClient()
 
 	ling.OnStateChanged(
@@ -555,8 +560,8 @@ func TestOnStateChanged_ExcludesMissingHostOrPort(t *testing.T) {
 		expectedTargets:  0,
 	})
 
-	proxy := ling.NewTCPProxy("myproxy", 0)
-	tcpProxies := map[string]*ling.TCPProxy{"myproxy": proxy}
+	proxy := ling.NewTCPProxy(testProxyName, 0)
+	tcpProxies := map[string]*ling.TCPProxy{testProxyName: proxy}
 	tunnelCli := ling.NewTunnelClient()
 
 	ling.OnStateChanged(
@@ -603,10 +608,10 @@ func buildLocationState() *state.State {
 		},
 		Services: []state.Service{
 			{
-				ServiceID:         "svc-1",
-				Name:              "myproxy",
+				ServiceID:         testServiceID,
+				Name:              testProxyName,
 				Token:             "",
-				LingID:            "ling-a",
+				LingID:            testLingID,
 				PreferredLocation: "",
 				LingReady:         true,
 				KingReady:         true,
@@ -616,7 +621,7 @@ func buildLocationState() *state.State {
 			},
 			{
 				ServiceID:         "svc-2",
-				Name:              "myproxy",
+				Name:              testProxyName,
 				Token:             "",
 				LingID:            "ling-b",
 				PreferredLocation: "",
@@ -636,8 +641,8 @@ func TestOnStateChanged_PrefersLocationTargets(t *testing.T) {
 
 	stateSnapshot := buildLocationState()
 
-	proxy := ling.NewTCPProxy("myproxy", 0)
-	tcpProxies := map[string]*ling.TCPProxy{"myproxy": proxy}
+	proxy := ling.NewTCPProxy(testProxyName, 0)
+	tcpProxies := map[string]*ling.TCPProxy{testProxyName: proxy}
 	tunnelCli := ling.NewTunnelClient()
 
 	ling.OnStateChanged(
@@ -657,8 +662,8 @@ func TestOnStateChanged_FallsBackWhenNoPreferredLocationTargets(t *testing.T) {
 
 	stateSnapshot := buildLocationState()
 
-	proxy := ling.NewTCPProxy("myproxy", 0)
-	tcpProxies := map[string]*ling.TCPProxy{"myproxy": proxy}
+	proxy := ling.NewTCPProxy(testProxyName, 0)
+	tcpProxies := map[string]*ling.TCPProxy{testProxyName: proxy}
 	tunnelCli := ling.NewTunnelClient()
 
 	ling.OnStateChanged(

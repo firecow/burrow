@@ -10,6 +10,8 @@ formatters:
 
 linters:
   default: all
+  disable:
+    - exhaustruct
   settings:
     depguard:
       rules:
@@ -23,8 +25,8 @@ linters:
             - github.com/spf13/cobra
             - github.com/stretchr/testify
             - github.com/testcontainers/testcontainers-go
-    exhaustruct:
-      exclude:
+    exhaustruct_v5:
+      ignore-patterns:
         - github.com/spf13/cobra\.Command
         - github.com/spf13/cobra\.CompletionOptions
         - crypto/tls\.Config
@@ -32,6 +34,7 @@ linters:
         - crypto/x509\.Certificate
         - encoding/pem\.Block
         - net/http\.Request
+        - net/http\.Server
         - net\.KeepAliveConfig
         - github.com/quic-go/quic-go\.Config
         - net/url\.URL
