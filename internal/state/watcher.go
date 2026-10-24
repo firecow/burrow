@@ -30,6 +30,7 @@ type Watcher struct {
 	councilHost   string
 	state         *State
 	mu            sync.Mutex
+	onChangeMu    sync.Mutex
 	onChange      func(*State)
 	httpTransport http.RoundTripper
 }
@@ -40,6 +41,7 @@ func NewWatcher(councilHost string, onChange func(*State)) *Watcher {
 		councilHost:   councilHost,
 		state:         nil,
 		mu:            sync.Mutex{},
+		onChangeMu:    sync.Mutex{},
 		onChange:      onChange,
 		httpTransport: http.DefaultTransport,
 	}
@@ -85,6 +87,18 @@ func (w *Watcher) WaitForState(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+// Replay invokes the change callback with the latest state.
+func (w *Watcher) Replay() {
+	w.onChangeMu.Lock()
+	defer w.onChangeMu.Unlock()
+
+	w.mu.Lock()
+	latest := w.state
+	w.mu.Unlock()
+
+	w.onChange(latest)
 }
 
 func buildStateURL(councilHost string) (string, error) {
@@ -153,7 +167,7 @@ func (w *Watcher) doFetchState(ctx context.Context, stateURL string) {
 	if w.state == nil || w.state.Revision != newState.Revision {
 		w.state = &newState
 		w.mu.Unlock()
-		w.onChange(&newState)
+		w.Replay()
 
 		return
 	}
