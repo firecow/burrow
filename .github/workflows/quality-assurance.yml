@@ -57,7 +57,7 @@ jobs:
           cache-dependency-path: |
             go.sum
             test/integration/*.go
-      - run: go test -tags=integration -v ./test/integration/...
+      - run: go test -tags=integration -count=1 -v ./test/integration/...
 
   docker:
     runs-on: ubuntu-24.04
