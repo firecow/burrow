@@ -61,7 +61,7 @@ func TestAvailableKingPorts_ShuttingDownExcluded(t *testing.T) {
 			{
 				BindPort:     2333,
 				Host:         testHostA,
-				Ports:        "5000-5001",
+				Ports:        testPorts,
 				ShuttingDown: true,
 				Beat:         0,
 				Location:     "",
@@ -221,7 +221,7 @@ func TestProvisionService_AssignsFirstAvailable(t *testing.T) {
 			{
 				BindPort:     2333,
 				Host:         testHostA,
-				Ports:        "5000-5001",
+				Ports:        testPorts,
 				ShuttingDown: false,
 				Beat:         0,
 				Location:     "",
@@ -230,8 +230,8 @@ func TestProvisionService_AssignsFirstAvailable(t *testing.T) {
 		},
 		Services: []state.Service{
 			{
-				ServiceID:         "svc-1",
-				Name:              "alpha",
+				ServiceID:         testServiceID,
+				Name:              testServiceName,
 				Token:             "",
 				LingID:            "",
 				PreferredLocation: "",
@@ -271,9 +271,9 @@ func TestProvision_MultipleUnprovisioned(t *testing.T) {
 
 	currentState := &state.State{
 		Revision: 0,
-		Kings:    []state.King{newTestKing(testHostA, "5000-5001", 2333, false)},
+		Kings:    []state.King{newTestKing(testHostA, testPorts, 2333, false)},
 		Services: []state.Service{
-			newEmptyService("svc-1", "alpha"),
+			newEmptyService(testServiceID, testServiceName),
 			newEmptyService("svc-2", "beta"),
 		},
 		Lings: nil,
@@ -307,8 +307,8 @@ func TestProvision_NoKingsNoAssignment(t *testing.T) {
 		Lings:    nil,
 		Services: []state.Service{
 			{
-				ServiceID:         "svc-1",
-				Name:              "alpha",
+				ServiceID:         testServiceID,
+				Name:              testServiceName,
 				Token:             "",
 				LingID:            "",
 				PreferredLocation: "",
@@ -340,7 +340,7 @@ func TestProvision_SkipsAlreadyProvisioned(t *testing.T) {
 			{
 				BindPort:     2333,
 				Host:         testHostA,
-				Ports:        "5000-5001",
+				Ports:        testPorts,
 				ShuttingDown: false,
 				Beat:         0,
 				Location:     "",
@@ -349,8 +349,8 @@ func TestProvision_SkipsAlreadyProvisioned(t *testing.T) {
 		},
 		Services: []state.Service{
 			{
-				ServiceID:         "svc-1",
-				Name:              "alpha",
+				ServiceID:         testServiceID,
+				Name:              testServiceName,
 				Token:             "",
 				LingID:            "",
 				PreferredLocation: "",
@@ -400,13 +400,13 @@ func TestProvision_DeprovisionsFromShuttingDownKing(t *testing.T) {
 	currentState := &state.State{
 		Revision: 0,
 		Kings: []state.King{
-			newTestKing(testHostA, "5000-5001", 2333, true),
+			newTestKing(testHostA, testPorts, 2333, true),
 			newTestKing(testHostB, "6000-6001", 2334, false),
 		},
 		Services: []state.Service{
 			{
-				ServiceID:         "svc-1",
-				Name:              "alpha",
+				ServiceID:         testServiceID,
+				Name:              testServiceName,
 				Token:             "",
 				LingID:            "",
 				PreferredLocation: "",
@@ -468,13 +468,13 @@ func TestProvision_DeprovisionsAndReprovisions(t *testing.T) {
 	currentState := &state.State{
 		Revision: 0,
 		Kings: []state.King{
-			newTestKing(testHostA, "5000-5001", 2333, true),
+			newTestKing(testHostA, testPorts, 2333, true),
 			newTestKing(testHostB, "6000-6001", 2334, false),
 		},
 		Services: []state.Service{
 			{
-				ServiceID:         "svc-1",
-				Name:              "alpha",
+				ServiceID:         testServiceID,
+				Name:              testServiceName,
 				Token:             "",
 				LingID:            "",
 				PreferredLocation: "",
@@ -524,7 +524,7 @@ func TestProvision_NoReprovisioning_WhenNoAvailableKing(t *testing.T) {
 			{
 				BindPort:     2333,
 				Host:         testHostA,
-				Ports:        "5000-5001",
+				Ports:        testPorts,
 				ShuttingDown: true,
 				Beat:         0,
 				Location:     "",
@@ -533,8 +533,8 @@ func TestProvision_NoReprovisioning_WhenNoAvailableKing(t *testing.T) {
 		},
 		Services: []state.Service{
 			{
-				ServiceID:         "svc-1",
-				Name:              "alpha",
+				ServiceID:         testServiceID,
+				Name:              testServiceName,
 				Token:             "",
 				LingID:            "",
 				PreferredLocation: "",
@@ -589,13 +589,13 @@ func TestProvisionService_PrefersMatchingLocation(t *testing.T) {
 	currentState := &state.State{
 		Revision: 0,
 		Kings: []state.King{
-			newTestKingWithLocation(testHostA, "5000-5001", 2333, "us-east"),
+			newTestKingWithLocation(testHostA, testPorts, 2333, "us-east"),
 			newTestKingWithLocation(testHostB, "6000-6001", 2334, "eu-west"),
 		},
 		Services: []state.Service{
 			{
-				ServiceID:         "svc-1",
-				Name:              "alpha",
+				ServiceID:         testServiceID,
+				Name:              testServiceName,
 				Token:             "",
 				LingID:            "",
 				PreferredLocation: "eu-west",
@@ -627,7 +627,7 @@ func TestProvisionService_FallsBackWhenPreferredLocationFull(t *testing.T) {
 	currentState := &state.State{
 		Revision: 0,
 		Kings: []state.King{
-			newTestKingWithLocation(testHostA, "5000-5001", 2333, "us-east"),
+			newTestKingWithLocation(testHostA, testPorts, 2333, "us-east"),
 			newTestKingWithLocation(testHostB, "6000-6000", 2334, "eu-west"),
 		},
 		Services: []state.Service{
@@ -644,8 +644,8 @@ func TestProvisionService_FallsBackWhenPreferredLocationFull(t *testing.T) {
 				RemotePort:        &port6000,
 			},
 			{
-				ServiceID:         "svc-1",
-				Name:              "alpha",
+				ServiceID:         testServiceID,
+				Name:              testServiceName,
 				Token:             "",
 				LingID:            "",
 				PreferredLocation: "eu-west",

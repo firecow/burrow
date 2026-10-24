@@ -11,8 +11,13 @@ import (
 )
 
 const (
-	testHostA = "1.2.3.4"
-	testHostB = "5.6.7.8"
+	testHostA       = "1.2.3.4"
+	testHostB       = "5.6.7.8"
+	testLingID      = "ling-1"
+	testServiceID   = "svc-1"
+	testServiceName = "alpha"
+	testPorts       = "5000-5001"
+	testLocation    = "CPH"
 )
 
 func TestRunCleaner_RemovesStaleKing(t *testing.T) {
@@ -94,7 +99,7 @@ func TestRunCleaner_RemovesStaleLing(t *testing.T) {
 		Kings:    nil,
 		Lings: []state.Ling{
 			{
-				LingID:       "ling-1",
+				LingID:       testLingID,
 				ShuttingDown: false,
 				Beat:         time.Now().UnixMilli() - 11000,
 			},
@@ -122,10 +127,10 @@ func TestRunCleaner_RemovesOrphanedService(t *testing.T) {
 		Revision: 0,
 		Services: []state.Service{
 			{
-				ServiceID:         "svc-1",
+				ServiceID:         testServiceID,
 				Name:              "",
 				Token:             "",
-				LingID:            "ling-1",
+				LingID:            testLingID,
 				PreferredLocation: "",
 				LingReady:         false,
 				KingReady:         false,
@@ -173,17 +178,17 @@ func TestRunCleaner_KeepsServiceWithKingAndLing(t *testing.T) {
 		},
 		Lings: []state.Ling{
 			{
-				LingID:       "ling-1",
+				LingID:       testLingID,
 				ShuttingDown: false,
 				Beat:         time.Now().UnixMilli(),
 			},
 		},
 		Services: []state.Service{
 			{
-				ServiceID:         "svc-1",
+				ServiceID:         testServiceID,
 				Name:              "",
 				Token:             "",
-				LingID:            "ling-1",
+				LingID:            testLingID,
 				PreferredLocation: "",
 				LingReady:         false,
 				KingReady:         false,
@@ -213,17 +218,17 @@ func TestRunCleaner_KeepsUnprovisionedServiceWithLing(t *testing.T) {
 		Kings:    nil,
 		Lings: []state.Ling{
 			{
-				LingID:       "ling-1",
+				LingID:       testLingID,
 				ShuttingDown: false,
 				Beat:         time.Now().UnixMilli(),
 			},
 		},
 		Services: []state.Service{
 			{
-				ServiceID:         "svc-1",
+				ServiceID:         testServiceID,
 				Name:              "",
 				Token:             "",
-				LingID:            "ling-1",
+				LingID:            testLingID,
 				PreferredLocation: "",
 				LingReady:         false,
 				KingReady:         false,
@@ -257,10 +262,10 @@ func TestRunCleaner_RemovesUnprovisionedServiceWithoutLing(t *testing.T) {
 		Lings:    nil,
 		Services: []state.Service{
 			{
-				ServiceID:         "svc-1",
+				ServiceID:         testServiceID,
 				Name:              "",
 				Token:             "",
-				LingID:            "ling-1",
+				LingID:            testLingID,
 				PreferredLocation: "",
 				LingReady:         false,
 				KingReady:         false,

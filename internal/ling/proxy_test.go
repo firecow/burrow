@@ -34,12 +34,10 @@ func newTestDialer(timeout time.Duration) net.Dialer {
 		Timeout:         timeout,
 		Deadline:        time.Time{},
 		LocalAddr:       nil,
-		DualStack:       false,
 		FallbackDelay:   0,
 		KeepAlive:       0,
 		KeepAliveConfig: net.KeepAliveConfig{Enable: false, Idle: 0, Interval: 0, Count: 0},
 		Resolver:        nil,
-		Cancel:          nil,
 		Control:         nil,
 		ControlContext:  nil,
 	}

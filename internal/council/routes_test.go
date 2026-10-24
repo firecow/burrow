@@ -42,7 +42,7 @@ func TestGetState_ReturnsJSON(t *testing.T) {
 
 	handler := council.HandleGetState(currentState, &stateMutex)
 
-	request := httptest.NewRequest(http.MethodGet, "/state", nil)
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/state", nil)
 	recorder := httptest.NewRecorder()
 	handler(recorder, request)
 
@@ -79,16 +79,16 @@ func TestPutKing_CreatesNewKing(t *testing.T) {
 		Host:         testHostA,
 		ShuttingDown: false,
 		Tunnels: []council.PutKingTunnel{
-			{BindPort: 2333, Ports: "5000-5001"},
+			{BindPort: 2333, Ports: testPorts},
 		},
 		ReadyServiceIDs: []string{},
-		Location:        "CPH",
+		Location:        testLocation,
 		CertPEM:         "",
 	}
 	body := mustMarshal(t, payload)
 
-	request := httptest.NewRequest(
-		http.MethodPut, "/king", bytes.NewReader(body),
+	request := httptest.NewRequestWithContext(
+		t.Context(), http.MethodPut, "/king", bytes.NewReader(body),
 	)
 	recorder := httptest.NewRecorder()
 	handler(recorder, request)
@@ -116,7 +116,7 @@ func TestPutKing_CreatesNewKing(t *testing.T) {
 		)
 	}
 
-	if currentState.Kings[0].Location != "CPH" {
+	if currentState.Kings[0].Location != testLocation {
 		t.Fatalf(
 			"expected location CPH, got %s",
 			currentState.Kings[0].Location,
@@ -135,10 +135,10 @@ func TestPutKing_UpdatesExistingKing(t *testing.T) {
 	currentState.Kings = append(currentState.Kings, state.King{
 		BindPort:     2333,
 		Host:         testHostA,
-		Ports:        "5000-5001",
+		Ports:        testPorts,
 		ShuttingDown: false,
 		Beat:         1000,
-		Location:     "CPH",
+		Location:     testLocation,
 		CertPEM:      "",
 	})
 
@@ -151,16 +151,16 @@ func TestPutKing_UpdatesExistingKing(t *testing.T) {
 		Host:         testHostA,
 		ShuttingDown: false,
 		Tunnels: []council.PutKingTunnel{
-			{BindPort: 2333, Ports: "5000-5001"},
+			{BindPort: 2333, Ports: testPorts},
 		},
 		ReadyServiceIDs: []string{},
-		Location:        "CPH",
+		Location:        testLocation,
 		CertPEM:         "",
 	}
 	body := mustMarshal(t, payload)
 
-	request := httptest.NewRequest(
-		http.MethodPut, "/king", bytes.NewReader(body),
+	request := httptest.NewRequestWithContext(
+		t.Context(), http.MethodPut, "/king", bytes.NewReader(body),
 	)
 	recorder := httptest.NewRecorder()
 	handler(recorder, request)
@@ -184,15 +184,15 @@ func TestPutKing_SetsReadyServiceIDs(t *testing.T) {
 	currentState.Kings = append(currentState.Kings, state.King{
 		BindPort:     2333,
 		Host:         testHostA,
-		Ports:        "5000-5001",
+		Ports:        testPorts,
 		ShuttingDown: false,
 		Beat:         0,
-		Location:     "CPH",
+		Location:     testLocation,
 		CertPEM:      "",
 	})
 	currentState.Services = append(currentState.Services, state.Service{
-		ServiceID:         "svc-1",
-		Name:              "alpha",
+		ServiceID:         testServiceID,
+		Name:              testServiceName,
 		Token:             "",
 		LingID:            "",
 		PreferredLocation: "",
@@ -212,16 +212,16 @@ func TestPutKing_SetsReadyServiceIDs(t *testing.T) {
 		Host:         testHostA,
 		ShuttingDown: false,
 		Tunnels: []council.PutKingTunnel{
-			{BindPort: 2333, Ports: "5000-5001"},
+			{BindPort: 2333, Ports: testPorts},
 		},
-		ReadyServiceIDs: []string{"svc-1"},
-		Location:        "CPH",
+		ReadyServiceIDs: []string{testServiceID},
+		Location:        testLocation,
 		CertPEM:         "",
 	}
 	body := mustMarshal(t, payload)
 
-	request := httptest.NewRequest(
-		http.MethodPut, "/king", bytes.NewReader(body),
+	request := httptest.NewRequestWithContext(
+		t.Context(), http.MethodPut, "/king", bytes.NewReader(body),
 	)
 	recorder := httptest.NewRecorder()
 	handler(recorder, request)
@@ -241,7 +241,7 @@ func assertLingAndServiceCreated(
 		t.Fatalf("expected 1 ling, got %d", len(currentState.Lings))
 	}
 
-	if currentState.Lings[0].LingID != "ling-1" {
+	if currentState.Lings[0].LingID != testLingID {
 		t.Fatalf("expected ling_id ling-1, got %s", currentState.Lings[0].LingID)
 	}
 
@@ -249,11 +249,11 @@ func assertLingAndServiceCreated(
 		t.Fatalf("expected 1 service, got %d", len(currentState.Services))
 	}
 
-	if currentState.Services[0].Name != "alpha" {
+	if currentState.Services[0].Name != testServiceName {
 		t.Fatalf("expected service name alpha, got %s", currentState.Services[0].Name)
 	}
 
-	if currentState.Services[0].LingID != "ling-1" {
+	if currentState.Services[0].LingID != testLingID {
 		t.Fatalf("expected ling_id ling-1, got %s", currentState.Services[0].LingID)
 	}
 
@@ -277,18 +277,18 @@ func TestPutLing_CreatesNewLingAndService(t *testing.T) {
 	handler := council.HandlePutLing(currentState, &stateMutex, hub)
 
 	payload := council.PutLingRequest{
-		LingID:       "ling-1",
+		LingID:       testLingID,
 		ShuttingDown: false,
 		Tunnels: []council.PutLingTunnel{
-			{Name: "alpha"},
+			{Name: testServiceName},
 		},
 		ReadyServiceIDs:   []string{},
-		PreferredLocation: "CPH",
+		PreferredLocation: testLocation,
 	}
 	body := mustMarshal(t, payload)
 
-	request := httptest.NewRequest(
-		http.MethodPut, "/ling", bytes.NewReader(body),
+	request := httptest.NewRequestWithContext(
+		t.Context(), http.MethodPut, "/ling", bytes.NewReader(body),
 	)
 	recorder := httptest.NewRecorder()
 	handler(recorder, request)
@@ -308,15 +308,15 @@ func TestPutLing_DoesNotDuplicateService(t *testing.T) {
 
 	currentState := newTestState()
 	currentState.Lings = append(currentState.Lings, state.Ling{
-		LingID:       "ling-1",
+		LingID:       testLingID,
 		ShuttingDown: false,
 		Beat:         1000,
 	})
 	currentState.Services = append(currentState.Services, state.Service{
-		ServiceID:         "svc-1",
-		Name:              "alpha",
+		ServiceID:         testServiceID,
+		Name:              testServiceName,
 		Token:             "",
-		LingID:            "ling-1",
+		LingID:            testLingID,
 		PreferredLocation: "",
 		LingReady:         false,
 		KingReady:         false,
@@ -331,18 +331,18 @@ func TestPutLing_DoesNotDuplicateService(t *testing.T) {
 	handler := council.HandlePutLing(currentState, &stateMutex, hub)
 
 	payload := council.PutLingRequest{
-		LingID:       "ling-1",
+		LingID:       testLingID,
 		ShuttingDown: false,
 		Tunnels: []council.PutLingTunnel{
-			{Name: "alpha"},
+			{Name: testServiceName},
 		},
 		ReadyServiceIDs:   []string{},
-		PreferredLocation: "CPH",
+		PreferredLocation: testLocation,
 	}
 	body := mustMarshal(t, payload)
 
-	request := httptest.NewRequest(
-		http.MethodPut, "/ling", bytes.NewReader(body),
+	request := httptest.NewRequestWithContext(
+		t.Context(), http.MethodPut, "/ling", bytes.NewReader(body),
 	)
 	recorder := httptest.NewRecorder()
 	handler(recorder, request)
@@ -360,10 +360,10 @@ func TestPutLing_SetsReadyServiceIDs(t *testing.T) {
 
 	currentState := newTestState()
 	currentState.Services = append(currentState.Services, state.Service{
-		ServiceID:         "svc-1",
-		Name:              "alpha",
+		ServiceID:         testServiceID,
+		Name:              testServiceName,
 		Token:             "",
-		LingID:            "ling-1",
+		LingID:            testLingID,
 		PreferredLocation: "",
 		LingReady:         false,
 		KingReady:         false,
@@ -378,18 +378,18 @@ func TestPutLing_SetsReadyServiceIDs(t *testing.T) {
 	handler := council.HandlePutLing(currentState, &stateMutex, hub)
 
 	payload := council.PutLingRequest{
-		LingID:       "ling-1",
+		LingID:       testLingID,
 		ShuttingDown: false,
 		Tunnels: []council.PutLingTunnel{
-			{Name: "alpha"},
+			{Name: testServiceName},
 		},
-		ReadyServiceIDs:   []string{"svc-1"},
-		PreferredLocation: "CPH",
+		ReadyServiceIDs:   []string{testServiceID},
+		PreferredLocation: testLocation,
 	}
 	body := mustMarshal(t, payload)
 
-	request := httptest.NewRequest(
-		http.MethodPut, "/ling", bytes.NewReader(body),
+	request := httptest.NewRequestWithContext(
+		t.Context(), http.MethodPut, "/ling", bytes.NewReader(body),
 	)
 	recorder := httptest.NewRecorder()
 	handler(recorder, request)
@@ -413,16 +413,16 @@ func TestPutKing_MissingHost(t *testing.T) {
 		Host:         "",
 		ShuttingDown: false,
 		Tunnels: []council.PutKingTunnel{
-			{BindPort: 2333, Ports: "5000-5001"},
+			{BindPort: 2333, Ports: testPorts},
 		},
 		ReadyServiceIDs: []string{},
-		Location:        "CPH",
+		Location:        testLocation,
 		CertPEM:         "",
 	}
 	body := mustMarshal(t, payload)
 
-	request := httptest.NewRequest(
-		http.MethodPut, "/king", bytes.NewReader(body),
+	request := httptest.NewRequestWithContext(
+		t.Context(), http.MethodPut, "/king", bytes.NewReader(body),
 	)
 	recorder := httptest.NewRecorder()
 	handler(recorder, request)
@@ -449,15 +449,15 @@ func TestPutLing_MissingLingID(t *testing.T) {
 		LingID:       "",
 		ShuttingDown: false,
 		Tunnels: []council.PutLingTunnel{
-			{Name: "alpha"},
+			{Name: testServiceName},
 		},
 		ReadyServiceIDs:   []string{},
-		PreferredLocation: "CPH",
+		PreferredLocation: testLocation,
 	}
 	body := mustMarshal(t, payload)
 
-	request := httptest.NewRequest(
-		http.MethodPut, "/ling", bytes.NewReader(body),
+	request := httptest.NewRequestWithContext(
+		t.Context(), http.MethodPut, "/ling", bytes.NewReader(body),
 	)
 	recorder := httptest.NewRecorder()
 	handler(recorder, request)
@@ -477,10 +477,10 @@ func TestPutKing_ShuttingDownUpdatesState(t *testing.T) {
 	currentState.Kings = append(currentState.Kings, state.King{
 		BindPort:     2333,
 		Host:         testHostA,
-		Ports:        "5000-5001",
+		Ports:        testPorts,
 		ShuttingDown: false,
 		Beat:         1000,
-		Location:     "CPH",
+		Location:     testLocation,
 		CertPEM:      "",
 	})
 
@@ -493,16 +493,16 @@ func TestPutKing_ShuttingDownUpdatesState(t *testing.T) {
 		Host:         testHostA,
 		ShuttingDown: true,
 		Tunnels: []council.PutKingTunnel{
-			{BindPort: 2333, Ports: "5000-5001"},
+			{BindPort: 2333, Ports: testPorts},
 		},
 		ReadyServiceIDs: []string{},
-		Location:        "CPH",
+		Location:        testLocation,
 		CertPEM:         "",
 	}
 	body := mustMarshal(t, payload)
 
-	request := httptest.NewRequest(
-		http.MethodPut, "/king", bytes.NewReader(body),
+	request := httptest.NewRequestWithContext(
+		t.Context(), http.MethodPut, "/king", bytes.NewReader(body),
 	)
 	recorder := httptest.NewRecorder()
 	handler(recorder, request)
@@ -520,7 +520,12 @@ func registerKing(
 	t.Helper()
 
 	body := mustMarshal(t, payload)
-	request := httptest.NewRequest(http.MethodPut, "/king", bytes.NewReader(body))
+	request := httptest.NewRequestWithContext(
+		t.Context(),
+		http.MethodPut,
+		"/king",
+		bytes.NewReader(body),
+	)
 	recorder := httptest.NewRecorder()
 	handler(recorder, request)
 }
@@ -533,7 +538,12 @@ func registerLing(
 	t.Helper()
 
 	body := mustMarshal(t, payload)
-	request := httptest.NewRequest(http.MethodPut, "/ling", bytes.NewReader(body))
+	request := httptest.NewRequestWithContext(
+		t.Context(),
+		http.MethodPut,
+		"/ling",
+		bytes.NewReader(body),
+	)
 	recorder := httptest.NewRecorder()
 	handler(recorder, request)
 }
@@ -550,18 +560,18 @@ func TestFullProvisioningFlow(t *testing.T) {
 	registerKing(t, council.HandlePutKing(currentState, &stateMutex, hub), council.PutKingRequest{
 		Host:            testHostA,
 		ShuttingDown:    false,
-		Tunnels:         []council.PutKingTunnel{{BindPort: 2333, Ports: "5000-5001"}},
+		Tunnels:         []council.PutKingTunnel{{BindPort: 2333, Ports: testPorts}},
 		ReadyServiceIDs: []string{},
-		Location:        "CPH",
+		Location:        testLocation,
 		CertPEM:         "",
 	})
 
 	registerLing(t, council.HandlePutLing(currentState, &stateMutex, hub), council.PutLingRequest{
-		LingID:            "ling-1",
+		LingID:            testLingID,
 		ShuttingDown:      false,
-		Tunnels:           []council.PutLingTunnel{{Name: "alpha"}},
+		Tunnels:           []council.PutLingTunnel{{Name: testServiceName}},
 		ReadyServiceIDs:   []string{},
-		PreferredLocation: "CPH",
+		PreferredLocation: testLocation,
 	})
 
 	if len(currentState.Services) != 1 {
