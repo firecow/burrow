@@ -69,3 +69,11 @@ func (tunnelSrv *TunnelServer) QUICConnCount() int {
 func (tunnelSrv *TunnelServer) WaitForDrain(ctx context.Context) {
 	tunnelSrv.waitForDrain(ctx)
 }
+
+// TCPServiceID returns the service ID a TCP listener port routes to (test helper).
+func (tunnelSrv *TunnelServer) TCPServiceID(remotePort int) string {
+	tunnelSrv.mu.RLock()
+	defer tunnelSrv.mu.RUnlock()
+
+	return tunnelSrv.tcpServiceIDs[remotePort]
+}

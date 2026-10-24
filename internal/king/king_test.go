@@ -25,12 +25,14 @@ const (
 	testPortRange7    = "39741-39750"
 	testPortRange8    = "39751-39760"
 	testPortRange9    = "39761-39770"
+	testPortRange10   = "39771-39780"
 	testRemotePort1   = 39701
 	testRemotePort2   = 39711
 	testRemotePort3   = 39721
 	testRemotePort4   = 39741
 	testRemotePort5   = 39751
 	testRemotePort6   = 39761
+	testRemotePort7   = 39771
 )
 
 func newTestService(
@@ -651,6 +653,46 @@ func TestOnStateChanged_UpdatesServicesMap(t *testing.T) {
 
 	if auth.Token != "tok-1" {
 		t.Fatalf("expected token tok-1, got %s", auth.Token)
+	}
+}
+
+func TestOnStateChanged_ReassignsReusedListenerPort(t *testing.T) {
+	t.Parallel()
+
+	tunnelSrv := king.NewTunnelServer(testBindPort, nil)
+	tunnels := map[int]*king.TunnelServer{
+		testBindPort: tunnelSrv,
+	}
+	tunnelConfigs := []king.TunnelConfig{
+		{BindPort: testBindPort, Ports: testPortRange10},
+	}
+
+	for _, serviceID := range []string{"svc-old", "svc-new"} {
+		host := testHost
+		bindPort := testBindPort
+		remotePort := testRemotePort7
+
+		currentState := newTestState(
+			[]state.Service{
+				newTestServiceWithToken(
+					serviceID, "ling-1", "tok-1",
+					&host, &bindPort, &remotePort,
+				),
+			},
+			[]state.Ling{newTestLing("ling-1", false)},
+		)
+
+		king.OnStateChanged(
+			t.Context(), currentState,
+			tunnels, tunnelConfigs, testHost,
+		)
+	}
+
+	if tunnelSrv.TCPServiceID(testRemotePort7) != "svc-new" {
+		t.Fatalf(
+			"expected port to route to svc-new, got %s",
+			tunnelSrv.TCPServiceID(testRemotePort7),
+		)
 	}
 }
 
