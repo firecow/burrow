@@ -3,6 +3,8 @@ package ling
 import (
 	"context"
 	"net"
+
+	"github.com/firecow/burrow/internal/state"
 )
 
 // TestUpdateTargets exposes updateTargets for external tests.
@@ -46,4 +48,19 @@ func (proxy *TCPProxy) TestUpstreamCount(addr string) int {
 // NewProxyTarget creates a ProxyTarget for external tests.
 func NewProxyTarget(host string, remotePort int) ProxyTarget {
 	return ProxyTarget{host: host, remotePort: remotePort}
+}
+
+// SyncTunnelServiceIDs exposes buildSyncTunnels and returns the reported service IDs per tunnel name.
+func SyncTunnelServiceIDs(
+	tunnelConfigs []TunnelConfig,
+	stateSnapshot *state.State,
+	lingID string,
+) map[string]string {
+	reported := make(map[string]string)
+
+	for _, tunnel := range buildSyncTunnels(tunnelConfigs, stateSnapshot, lingID) {
+		reported[tunnel.Name] = tunnel.ServiceID
+	}
+
+	return reported
 }

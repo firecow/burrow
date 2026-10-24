@@ -40,7 +40,7 @@ func TestGetState_ReturnsJSON(t *testing.T) {
 
 	var stateMutex sync.RWMutex
 
-	handler := council.HandleGetState(currentState, &stateMutex)
+	handler := council.HandleGetState(currentState, &stateMutex, council.NewWarmup(0))
 
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/state", nil)
 	recorder := httptest.NewRecorder()
@@ -73,7 +73,7 @@ func TestPutKing_CreatesNewKing(t *testing.T) {
 	var stateMutex sync.RWMutex
 
 	hub := council.NewWSHub()
-	handler := council.HandlePutKing(currentState, &stateMutex, hub)
+	handler := council.HandlePutKing(currentState, &stateMutex, hub, council.NewWarmup(0))
 
 	payload := council.PutKingRequest{
 		Host:         testHostA,
@@ -145,7 +145,7 @@ func TestPutKing_UpdatesExistingKing(t *testing.T) {
 	var stateMutex sync.RWMutex
 
 	hub := council.NewWSHub()
-	handler := council.HandlePutKing(currentState, &stateMutex, hub)
+	handler := council.HandlePutKing(currentState, &stateMutex, hub, council.NewWarmup(0))
 
 	payload := council.PutKingRequest{
 		Host:         testHostA,
@@ -206,7 +206,7 @@ func TestPutKing_SetsReadyServiceIDs(t *testing.T) {
 	var stateMutex sync.RWMutex
 
 	hub := council.NewWSHub()
-	handler := council.HandlePutKing(currentState, &stateMutex, hub)
+	handler := council.HandlePutKing(currentState, &stateMutex, hub, council.NewWarmup(0))
 
 	payload := council.PutKingRequest{
 		Host:         testHostA,
@@ -274,13 +274,20 @@ func TestPutLing_CreatesNewLingAndService(t *testing.T) {
 	var stateMutex sync.RWMutex
 
 	hub := council.NewWSHub()
-	handler := council.HandlePutLing(currentState, &stateMutex, hub)
+	handler := council.HandlePutLing(currentState, &stateMutex, hub, council.NewWarmup(0))
 
 	payload := council.PutLingRequest{
 		LingID:       testLingID,
 		ShuttingDown: false,
 		Tunnels: []council.PutLingTunnel{
-			{Name: testServiceName},
+			{
+				Name:       testServiceName,
+				ServiceID:  "",
+				Token:      "",
+				Host:       nil,
+				BindPort:   nil,
+				RemotePort: nil,
+			},
 		},
 		ReadyServiceIDs:   []string{},
 		PreferredLocation: testLocation,
@@ -328,13 +335,20 @@ func TestPutLing_DoesNotDuplicateService(t *testing.T) {
 	var stateMutex sync.RWMutex
 
 	hub := council.NewWSHub()
-	handler := council.HandlePutLing(currentState, &stateMutex, hub)
+	handler := council.HandlePutLing(currentState, &stateMutex, hub, council.NewWarmup(0))
 
 	payload := council.PutLingRequest{
 		LingID:       testLingID,
 		ShuttingDown: false,
 		Tunnels: []council.PutLingTunnel{
-			{Name: testServiceName},
+			{
+				Name:       testServiceName,
+				ServiceID:  "",
+				Token:      "",
+				Host:       nil,
+				BindPort:   nil,
+				RemotePort: nil,
+			},
 		},
 		ReadyServiceIDs:   []string{},
 		PreferredLocation: testLocation,
@@ -375,13 +389,20 @@ func TestPutLing_SetsReadyServiceIDs(t *testing.T) {
 	var stateMutex sync.RWMutex
 
 	hub := council.NewWSHub()
-	handler := council.HandlePutLing(currentState, &stateMutex, hub)
+	handler := council.HandlePutLing(currentState, &stateMutex, hub, council.NewWarmup(0))
 
 	payload := council.PutLingRequest{
 		LingID:       testLingID,
 		ShuttingDown: false,
 		Tunnels: []council.PutLingTunnel{
-			{Name: testServiceName},
+			{
+				Name:       testServiceName,
+				ServiceID:  "",
+				Token:      "",
+				Host:       nil,
+				BindPort:   nil,
+				RemotePort: nil,
+			},
 		},
 		ReadyServiceIDs:   []string{testServiceID},
 		PreferredLocation: testLocation,
@@ -424,13 +445,20 @@ func TestPutLing_ShuttingDownClearsReady(t *testing.T) {
 	var stateMutex sync.RWMutex
 
 	hub := council.NewWSHub()
-	handler := council.HandlePutLing(currentState, &stateMutex, hub)
+	handler := council.HandlePutLing(currentState, &stateMutex, hub, council.NewWarmup(0))
 
 	payload := council.PutLingRequest{
 		LingID:       testLingID,
 		ShuttingDown: true,
 		Tunnels: []council.PutLingTunnel{
-			{Name: testServiceName},
+			{
+				Name:       testServiceName,
+				ServiceID:  "",
+				Token:      "",
+				Host:       nil,
+				BindPort:   nil,
+				RemotePort: nil,
+			},
 		},
 		ReadyServiceIDs:   []string{},
 		PreferredLocation: testLocation,
@@ -456,7 +484,7 @@ func TestPutKing_MissingHost(t *testing.T) {
 	var stateMutex sync.RWMutex
 
 	hub := council.NewWSHub()
-	handler := council.HandlePutKing(currentState, &stateMutex, hub)
+	handler := council.HandlePutKing(currentState, &stateMutex, hub, council.NewWarmup(0))
 
 	payload := council.PutKingRequest{
 		Host:         "",
@@ -492,13 +520,20 @@ func TestPutLing_MissingLingID(t *testing.T) {
 	var stateMutex sync.RWMutex
 
 	hub := council.NewWSHub()
-	handler := council.HandlePutLing(currentState, &stateMutex, hub)
+	handler := council.HandlePutLing(currentState, &stateMutex, hub, council.NewWarmup(0))
 
 	payload := council.PutLingRequest{
 		LingID:       "",
 		ShuttingDown: false,
 		Tunnels: []council.PutLingTunnel{
-			{Name: testServiceName},
+			{
+				Name:       testServiceName,
+				ServiceID:  "",
+				Token:      "",
+				Host:       nil,
+				BindPort:   nil,
+				RemotePort: nil,
+			},
 		},
 		ReadyServiceIDs:   []string{},
 		PreferredLocation: testLocation,
@@ -536,7 +571,7 @@ func TestPutKing_ShuttingDownUpdatesState(t *testing.T) {
 	var stateMutex sync.RWMutex
 
 	hub := council.NewWSHub()
-	handler := council.HandlePutKing(currentState, &stateMutex, hub)
+	handler := council.HandlePutKing(currentState, &stateMutex, hub, council.NewWarmup(0))
 
 	payload := council.PutKingRequest{
 		Host:         testHostA,
@@ -606,22 +641,39 @@ func TestFullProvisioningFlow(t *testing.T) {
 
 	hub := council.NewWSHub()
 
-	registerKing(t, council.HandlePutKing(currentState, &stateMutex, hub), council.PutKingRequest{
-		Host:            testHostA,
-		ShuttingDown:    false,
-		Tunnels:         []council.PutKingTunnel{{BindPort: 2333, Ports: testPorts}},
-		ReadyServiceIDs: []string{},
-		Location:        testLocation,
-		CertPEM:         "",
-	})
+	registerKing(
+		t,
+		council.HandlePutKing(currentState, &stateMutex, hub, council.NewWarmup(0)),
+		council.PutKingRequest{
+			Host:            testHostA,
+			ShuttingDown:    false,
+			Tunnels:         []council.PutKingTunnel{{BindPort: 2333, Ports: testPorts}},
+			ReadyServiceIDs: []string{},
+			Location:        testLocation,
+			CertPEM:         "",
+		},
+	)
 
-	registerLing(t, council.HandlePutLing(currentState, &stateMutex, hub), council.PutLingRequest{
-		LingID:            testLingID,
-		ShuttingDown:      false,
-		Tunnels:           []council.PutLingTunnel{{Name: testServiceName}},
-		ReadyServiceIDs:   []string{},
-		PreferredLocation: testLocation,
-	})
+	registerLing(
+		t,
+		council.HandlePutLing(currentState, &stateMutex, hub, council.NewWarmup(0)),
+		council.PutLingRequest{
+			LingID:       testLingID,
+			ShuttingDown: false,
+			Tunnels: []council.PutLingTunnel{
+				{
+					Name:       testServiceName,
+					ServiceID:  "",
+					Token:      "",
+					Host:       nil,
+					BindPort:   nil,
+					RemotePort: nil,
+				},
+			},
+			ReadyServiceIDs:   []string{},
+			PreferredLocation: testLocation,
+		},
+	)
 
 	if len(currentState.Services) != 1 {
 		t.Fatalf("expected 1 service, got %d", len(currentState.Services))

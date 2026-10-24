@@ -677,3 +677,37 @@ func TestOnStateChanged_FallsBackWhenNoPreferredLocationTargets(t *testing.T) {
 		t.Fatalf("expected 2 targets (fallback to all), got %d", len(targets))
 	}
 }
+
+func TestBuildSyncTunnels_ReportsHeldIdentity(t *testing.T) {
+	t.Parallel()
+
+	tunnelConfigs := []ling.TunnelConfig{
+		{Name: testTunnelName, LocalAddr: testLocalAddr},
+		{Name: "unassigned", LocalAddr: testLocalAddr},
+	}
+	stateSnapshot := &state.State{
+		Revision: 1,
+		Services: []state.Service{
+			{
+				Name:              testTunnelName,
+				Token:             "tok",
+				ServiceID:         testServiceID,
+				LingID:            testLingID,
+				PreferredLocation: "",
+				LingReady:         true,
+				KingReady:         true,
+				Host:              nil,
+				BindPort:          nil,
+				RemotePort:        nil,
+			},
+		},
+		Kings: []state.King{},
+		Lings: []state.Ling{},
+	}
+
+	reported := ling.SyncTunnelServiceIDs(tunnelConfigs, stateSnapshot, testLingID)
+
+	if reported[testTunnelName] != testServiceID || reported["unassigned"] != "" {
+		t.Fatalf("expected only %s to carry its service ID, got %v", testTunnelName, reported)
+	}
+}

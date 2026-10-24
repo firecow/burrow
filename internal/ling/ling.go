@@ -215,7 +215,6 @@ func run(
 	proxies []ProxyConfig,
 ) error {
 	tunnelMap := buildTunnelMap(tunnelConfigs)
-	syncTunnels := buildSyncTunnels(tunnelConfigs)
 	tunnelCli := NewTunnelClient()
 
 	tcpProxies, err := startProxies(ctx, proxies)
@@ -229,20 +228,21 @@ func run(
 
 	shuttingDown := false
 
-	readyServiceIDs := func() []string {
+	report := func() ([]syncTunnel, []string) {
 		stateMutex.Lock()
 		defer stateMutex.Unlock()
 
-		if currentState == nil || shuttingDown {
-			return []string{}
+		readyIDs := []string{}
+		if currentState != nil && !shuttingDown {
+			readyIDs = ComputeReadyServiceIDs(currentState, lingID, tunnelMap)
 		}
 
-		return ComputeReadyServiceIDs(currentState, lingID, tunnelMap)
+		return buildSyncTunnels(tunnelConfigs, currentState, lingID), readyIDs
 	}
 
 	syncerInstance := buildSyncer(
 		councilHost, lingID, preferredLocation,
-		syncTunnels, readyServiceIDs, &stateMutex, &shuttingDown,
+		report, &stateMutex, &shuttingDown,
 	)
 
 	tunnelCli.onConnected = syncerInstance.triggerSync
@@ -291,8 +291,7 @@ func startProxies(
 
 func buildSyncer(
 	councilHost, lingID, preferredLocation string,
-	syncTunnels []syncTunnel,
-	readyServiceIDs func() []string,
+	report func() ([]syncTunnel, []string),
 	stateMutex *sync.Mutex,
 	shuttingDown *bool,
 ) *lingSyncer {
@@ -300,8 +299,7 @@ func buildSyncer(
 		councilHost:       councilHost,
 		lingID:            lingID,
 		preferredLocation: preferredLocation,
-		tunnels:           syncTunnels,
-		readyServiceIDs:   readyServiceIDs,
+		report:            report,
 		notify:            make(chan struct{}, 1),
 		shuttingDown: func() bool {
 			stateMutex.Lock()
@@ -414,11 +412,42 @@ func buildTunnelMap(tunnelConfigs []TunnelConfig) map[string]string {
 	return tunnelMap
 }
 
-func buildSyncTunnels(tunnelConfigs []TunnelConfig) []syncTunnel {
+func buildSyncTunnels(
+	tunnelConfigs []TunnelConfig,
+	stateSnapshot *state.State,
+	lingID string,
+) []syncTunnel {
 	syncTunnels := make([]syncTunnel, 0, len(tunnelConfigs))
 
+	var services []state.Service
+	if stateSnapshot != nil {
+		services = stateSnapshot.Services
+	}
+
 	for _, tunnelCfg := range tunnelConfigs {
-		syncTunnels = append(syncTunnels, syncTunnel{Name: tunnelCfg.Name})
+		tunnel := syncTunnel{
+			Name:       tunnelCfg.Name,
+			ServiceID:  "",
+			Token:      "",
+			Host:       nil,
+			BindPort:   nil,
+			RemotePort: nil,
+		}
+
+		for _, svc := range services {
+			if svc.LingID == lingID && svc.Name == tunnelCfg.Name {
+				tunnel = syncTunnel{
+					Name:       svc.Name,
+					ServiceID:  svc.ServiceID,
+					Token:      svc.Token,
+					Host:       svc.Host,
+					BindPort:   svc.BindPort,
+					RemotePort: svc.RemotePort,
+				}
+			}
+		}
+
+		syncTunnels = append(syncTunnels, tunnel)
 	}
 
 	if len(syncTunnels) == 0 {

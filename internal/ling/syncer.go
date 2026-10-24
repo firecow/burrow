@@ -28,15 +28,19 @@ type syncPayload struct {
 }
 
 type syncTunnel struct {
-	Name string `json:"name"`
+	Name       string  `json:"name"`
+	ServiceID  string  `json:"serviceId,omitempty"`
+	Token      string  `json:"token,omitempty"`
+	Host       *string `json:"host,omitempty"`
+	BindPort   *int    `json:"bindPort,omitempty"`
+	RemotePort *int    `json:"remotePort,omitempty"`
 }
 
 type lingSyncer struct {
 	councilHost       string
 	lingID            string
 	preferredLocation string
-	tunnels           []syncTunnel
-	readyServiceIDs   func() []string
+	report            func() ([]syncTunnel, []string)
 	shuttingDown      func() bool
 	notify            chan struct{}
 	httpTransport     http.RoundTripper
@@ -100,15 +104,12 @@ func buildSyncURL(baseURL *url.URL) *url.URL {
 }
 
 func (syncer *lingSyncer) sync(ctx context.Context) {
-	readyIDs := syncer.readyServiceIDs()
-	if readyIDs == nil {
-		readyIDs = []string{}
-	}
+	tunnels, readyIDs := syncer.report()
 
 	payload := syncPayload{
 		LingID:            syncer.lingID,
 		ShuttingDown:      syncer.shuttingDown(),
-		Tunnels:           syncer.tunnels,
+		Tunnels:           tunnels,
 		ReadyServiceIDs:   readyIDs,
 		PreferredLocation: syncer.preferredLocation,
 	}

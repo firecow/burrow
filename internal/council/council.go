@@ -19,6 +19,7 @@ const (
 	defaultPort             = 8080
 	readHeaderTimeout       = 5 * time.Second
 	gracefulShutdownTimeout = 5 * time.Second
+	warmupDuration          = 3 * time.Second
 )
 
 // Command returns the cobra command for starting the council server.
@@ -80,7 +81,7 @@ func Command() *cobra.Command {
 
 func run(ctx context.Context, port int) error {
 	currentState := &state.State{
-		Revision: 0,
+		Revision: int(time.Now().UnixMilli()),
 		Services: []state.Service{},
 		Kings:    []state.King{},
 		Lings:    []state.Ling{},
@@ -89,10 +90,24 @@ func run(ctx context.Context, port int) error {
 	var stateMutex sync.RWMutex
 
 	hub := NewWSHub()
-	server := newServer(ctx, port, currentState, &stateMutex, hub)
+	warmup := NewWarmup(warmupDuration)
+	server := newServer(ctx, port, currentState, &stateMutex, hub, warmup)
 	cleanerStop := make(chan struct{})
 
-	go StartCleaner(ctx, currentState, &stateMutex, hub, cleanerStop)
+	go StartCleaner(ctx, currentState, &stateMutex, hub, warmup, cleanerStop)
+
+	go func() {
+		warmup.wait(ctx)
+
+		stateMutex.Lock()
+		Provision(currentState)
+
+		currentState.Revision++
+		stateMutex.Unlock()
+
+		slog.Info("Warmup complete, serving state")
+		hub.Broadcast(ctx)
+	}()
 
 	go func() {
 		<-ctx.Done()
@@ -122,11 +137,12 @@ func newServer(
 	currentState *state.State,
 	stateMutex *sync.RWMutex,
 	hub *WSHub,
+	warmup *Warmup,
 ) *http.Server {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /state", HandleGetState(currentState, stateMutex))
-	mux.HandleFunc("PUT /king", HandlePutKing(currentState, stateMutex, hub))
-	mux.HandleFunc("PUT /ling", HandlePutLing(currentState, stateMutex, hub))
+	mux.HandleFunc("GET /state", HandleGetState(currentState, stateMutex, warmup))
+	mux.HandleFunc("PUT /king", HandlePutKing(currentState, stateMutex, hub, warmup))
+	mux.HandleFunc("PUT /ling", HandlePutLing(currentState, stateMutex, hub, warmup))
 	mux.HandleFunc("/ws", hub.handleWebSocket)
 
 	return &http.Server{
