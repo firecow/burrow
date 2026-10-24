@@ -399,6 +399,55 @@ func TestPutLing_SetsReadyServiceIDs(t *testing.T) {
 	}
 }
 
+func TestPutLing_ShuttingDownClearsReady(t *testing.T) {
+	t.Parallel()
+
+	currentState := newTestState()
+	currentState.Lings = append(currentState.Lings, state.Ling{
+		LingID:       testLingID,
+		ShuttingDown: false,
+		Beat:         0,
+	})
+	currentState.Services = append(currentState.Services, state.Service{
+		ServiceID:         testServiceID,
+		Name:              testServiceName,
+		Token:             "",
+		LingID:            testLingID,
+		PreferredLocation: "",
+		LingReady:         true,
+		KingReady:         false,
+		Host:              nil,
+		BindPort:          nil,
+		RemotePort:        nil,
+	})
+
+	var stateMutex sync.RWMutex
+
+	hub := council.NewWSHub()
+	handler := council.HandlePutLing(currentState, &stateMutex, hub)
+
+	payload := council.PutLingRequest{
+		LingID:       testLingID,
+		ShuttingDown: true,
+		Tunnels: []council.PutLingTunnel{
+			{Name: testServiceName},
+		},
+		ReadyServiceIDs:   []string{},
+		PreferredLocation: testLocation,
+	}
+	body := mustMarshal(t, payload)
+
+	request := httptest.NewRequestWithContext(
+		t.Context(), http.MethodPut, "/ling", bytes.NewReader(body),
+	)
+	recorder := httptest.NewRecorder()
+	handler(recorder, request)
+
+	if currentState.Services[0].LingReady {
+		t.Fatalf("expected ling_ready to be false")
+	}
+}
+
 func TestPutKing_MissingHost(t *testing.T) {
 	t.Parallel()
 

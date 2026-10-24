@@ -13,6 +13,7 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/quic-go/quic-go"
@@ -50,17 +51,21 @@ type TunnelService struct {
 
 // TunnelClient manages QUIC connections to king nodes.
 type TunnelClient struct {
-	mu          sync.Mutex
-	connections map[string]*quic.Conn
-	onConnected func()
+	mu            sync.Mutex
+	connections   map[string]*quic.Conn
+	activeStreams atomic.Int64
+	drainNotify   chan struct{}
+	onConnected   func()
 }
 
 // NewTunnelClient creates a new TunnelClient with an initialized connection map.
 func NewTunnelClient() *TunnelClient {
 	return &TunnelClient{
-		mu:          sync.Mutex{},
-		connections: make(map[string]*quic.Conn),
-		onConnected: nil,
+		mu:            sync.Mutex{},
+		connections:   make(map[string]*quic.Conn),
+		activeStreams: atomic.Int64{},
+		drainNotify:   make(chan struct{}, 1),
+		onConnected:   nil,
 	}
 }
 
@@ -246,7 +251,28 @@ func (tc *TunnelClient) acceptDataStreams(
 			return
 		}
 
-		go handleDataStream(serveCtx, dataStream, localAddrs)
+		tc.activeStreams.Add(1)
+
+		go func() {
+			handleDataStream(serveCtx, dataStream, localAddrs)
+
+			if tc.activeStreams.Add(-1) == 0 {
+				select {
+				case tc.drainNotify <- struct{}{}:
+				default:
+				}
+			}
+		}()
+	}
+}
+
+func (tc *TunnelClient) waitForDrain(ctx context.Context) {
+	for tc.activeStreams.Load() > 0 {
+		select {
+		case <-tc.drainNotify:
+		case <-ctx.Done():
+			return
+		}
 	}
 }
 
