@@ -21,6 +21,7 @@ import (
 const (
 	keyValueParts           = 2
 	finalSyncTimeout        = 2 * time.Second
+	streamDrainTimeout      = 5 * time.Second
 	quicErrorCodeCloseClean = 0
 )
 
@@ -231,7 +232,7 @@ func run(
 		stateMutex.Lock()
 		defer stateMutex.Unlock()
 
-		if currentState == nil {
+		if currentState == nil || shuttingDown {
 			return []string{}
 		}
 
@@ -372,6 +373,13 @@ func performShutdown(
 	defer finalCancel()
 
 	syncerInstance.sync(finalCtx)
+
+	drainCtx, drainCancel := context.WithTimeout(
+		context.WithoutCancel(ctx), streamDrainTimeout,
+	)
+	defer drainCancel()
+
+	tunnelCli.waitForDrain(drainCtx)
 
 	tunnelCli.closeAll()
 

@@ -395,6 +395,13 @@ func ensureLingExists(
 
 	if existingLing.ShuttingDown != req.ShuttingDown {
 		existingLing.ShuttingDown = req.ShuttingDown
+
+		for i := range currentState.Services {
+			if req.ShuttingDown && currentState.Services[i].LingID == req.LingID {
+				currentState.Services[i].LingReady = false
+			}
+		}
+
 		currentState.Revision++
 		Provision(currentState)
 		stateMutex.Unlock()
