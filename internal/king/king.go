@@ -26,6 +26,7 @@ const (
 	kvPairCount        = 2
 	finalSyncTimeout   = 2 * time.Second
 	quicDrainTimeout   = 5 * time.Second
+	reconcileInterval  = 1 * time.Second
 	certValidityYears  = 10 * 365 * 24 * time.Hour
 )
 
@@ -256,7 +257,16 @@ func runEventLoop(
 
 	slog.Info("Ready")
 
-	<-ctx.Done()
+	reconcileTicker := time.NewTicker(reconcileInterval)
+	defer reconcileTicker.Stop()
+
+	for ctx.Err() == nil {
+		select {
+		case <-ctx.Done():
+		case <-reconcileTicker.C:
+			watcher.Replay()
+		}
+	}
 
 	performShutdown(
 		ctx, tunnels,

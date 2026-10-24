@@ -54,6 +54,7 @@ type TunnelServer struct {
 	mu              sync.RWMutex
 	services        map[string]ServiceAuth
 	tcpListeners    map[int]net.Listener
+	tcpServiceIDs   map[int]string
 	quicConns       map[string]*quic.Conn
 	drainNotify     chan struct{}
 	onLingConnected func()
@@ -69,6 +70,7 @@ func NewTunnelServer(
 		mu:              sync.RWMutex{},
 		services:        make(map[string]ServiceAuth),
 		tcpListeners:    make(map[int]net.Listener),
+		tcpServiceIDs:   make(map[int]string),
 		quicConns:       make(map[string]*quic.Conn),
 		drainNotify:     make(chan struct{}, 1),
 		onLingConnected: nil,
@@ -330,6 +332,8 @@ func (tunnelSrv *TunnelServer) ensureTCPListener(
 ) {
 	tunnelSrv.mu.Lock()
 
+	tunnelSrv.tcpServiceIDs[remotePort] = serviceID
+
 	if _, exists := tunnelSrv.tcpListeners[remotePort]; exists {
 		tunnelSrv.mu.Unlock()
 
@@ -368,20 +372,24 @@ func (tunnelSrv *TunnelServer) ensureTCPListener(
 	)
 
 	go tunnelSrv.acceptTCPConnections(
-		ctx, listener, serviceID,
+		ctx, listener, remotePort,
 	)
 }
 
 func (tunnelSrv *TunnelServer) acceptTCPConnections(
 	ctx context.Context,
 	listener net.Listener,
-	serviceID string,
+	remotePort int,
 ) {
 	for {
 		tcpConn, acceptErr := listener.Accept()
 		if acceptErr != nil {
 			return
 		}
+
+		tunnelSrv.mu.RLock()
+		serviceID := tunnelSrv.tcpServiceIDs[remotePort]
+		tunnelSrv.mu.RUnlock()
 
 		go tunnelSrv.handleTCPConnection(
 			ctx, tcpConn, serviceID,
@@ -400,6 +408,7 @@ func (tunnelSrv *TunnelServer) removeTCPListener(
 		_ = listener.Close()
 
 		delete(tunnelSrv.tcpListeners, remotePort)
+		delete(tunnelSrv.tcpServiceIDs, remotePort)
 		slog.Info(
 			"TCP listener removed",
 			"remote_port", remotePort,
@@ -532,6 +541,7 @@ func (tunnelSrv *TunnelServer) close() {
 		_ = listener.Close()
 
 		delete(tunnelSrv.tcpListeners, port)
+		delete(tunnelSrv.tcpServiceIDs, port)
 	}
 
 	for serviceID, conn := range tunnelSrv.quicConns {
