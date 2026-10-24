@@ -389,13 +389,19 @@ func performShutdown(
 	)
 	defer drainCancel()
 
-	tunnelCli.waitForDrain(drainCtx)
+	var drainWg sync.WaitGroup
 
-	tunnelCli.closeAll()
+	drainWg.Go(func() {
+		tunnelCli.closeAll(drainCtx)
+	})
 
 	for _, proxy := range tcpProxies {
-		proxy.close()
+		drainWg.Go(func() {
+			proxy.close(drainCtx)
+		})
 	}
+
+	drainWg.Wait()
 }
 
 func buildTunnelMap(tunnelConfigs []TunnelConfig) map[string]string {
@@ -558,19 +564,7 @@ func updateTunnelConnections(
 		tunnelCli.ensureConnection(ctx, group, localAddrs)
 	}
 
-	tunnelCli.mu.Lock()
-
-	for addr := range tunnelCli.connections {
-		if _, needed := groups[addr]; !needed {
-			_ = tunnelCli.connections[addr].CloseWithError(
-				quicErrorCodeCloseClean, "no longer needed",
-			)
-
-			delete(tunnelCli.connections, addr)
-		}
-	}
-
-	tunnelCli.mu.Unlock()
+	tunnelCli.retireUnneeded(ctx, groups)
 }
 
 func updateProxyTargets(

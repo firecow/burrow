@@ -13,7 +13,6 @@ import (
 	"net"
 	"strconv"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/quic-go/quic-go"
@@ -49,23 +48,24 @@ type TunnelService struct {
 	localAddr string
 }
 
+type kingConnection struct {
+	conn    *quic.Conn
+	streams *activity
+}
+
 // TunnelClient manages QUIC connections to king nodes.
 type TunnelClient struct {
-	mu            sync.Mutex
-	connections   map[string]*quic.Conn
-	activeStreams atomic.Int64
-	drainNotify   chan struct{}
-	onConnected   func()
+	mu          sync.Mutex
+	connections map[string]kingConnection
+	onConnected func()
 }
 
 // NewTunnelClient creates a new TunnelClient with an initialized connection map.
 func NewTunnelClient() *TunnelClient {
 	return &TunnelClient{
-		mu:            sync.Mutex{},
-		connections:   make(map[string]*quic.Conn),
-		activeStreams: atomic.Int64{},
-		drainNotify:   make(chan struct{}, 1),
-		onConnected:   nil,
+		mu:          sync.Mutex{},
+		connections: make(map[string]kingConnection),
+		onConnected: nil,
 	}
 }
 
@@ -102,28 +102,30 @@ func (tc *TunnelClient) ensureConnection(
 		return
 	}
 
+	kingConn := kingConnection{conn: conn, streams: newActivity()}
+
 	tc.mu.Lock()
-	tc.connections[kingAddr] = conn
+	tc.connections[kingAddr] = kingConn
 	tc.mu.Unlock()
 
 	if tc.onConnected != nil {
 		tc.onConnected()
 	}
 
-	go tc.acceptDataStreams(ctx, conn, kingAddr, localAddrs)
+	go tc.acceptDataStreams(ctx, kingConn, kingAddr, localAddrs)
 }
 
 func (tc *TunnelClient) hasActiveConnection(kingAddr string) bool {
 	tc.mu.Lock()
 	defer tc.mu.Unlock()
 
-	conn, exists := tc.connections[kingAddr]
+	kingConn, exists := tc.connections[kingAddr]
 	if !exists {
 		return false
 	}
 
 	select {
-	case <-conn.Context().Done():
+	case <-kingConn.conn.Context().Done():
 		delete(tc.connections, kingAddr)
 
 		return false
@@ -229,51 +231,63 @@ func (tc *TunnelClient) authenticateServices(
 
 func (tc *TunnelClient) acceptDataStreams(
 	ctx context.Context,
-	conn *quic.Conn,
+	kingConn kingConnection,
 	kingAddr string,
 	localAddrs map[string]string,
 ) {
 	serveCtx := context.WithoutCancel(ctx)
 
 	for {
-		dataStream, err := conn.AcceptStream(serveCtx)
+		dataStream, err := kingConn.conn.AcceptStream(serveCtx)
 		if err != nil {
-			if ctx.Err() != nil {
-				return
-			}
-
 			slog.Info("King connection closed", "king_addr", kingAddr)
 
 			tc.mu.Lock()
-			delete(tc.connections, kingAddr)
+			if tc.connections[kingAddr].conn == kingConn.conn {
+				delete(tc.connections, kingAddr)
+			}
 			tc.mu.Unlock()
 
 			return
 		}
 
-		tc.activeStreams.Add(1)
+		kingConn.streams.begin()
 
 		go func() {
-			handleDataStream(serveCtx, dataStream, localAddrs)
+			defer kingConn.streams.end()
 
-			if tc.activeStreams.Add(-1) == 0 {
-				select {
-				case tc.drainNotify <- struct{}{}:
-				default:
-				}
-			}
+			handleDataStream(serveCtx, dataStream, localAddrs)
 		}()
 	}
 }
 
-func (tc *TunnelClient) waitForDrain(ctx context.Context) {
-	for tc.activeStreams.Load() > 0 {
-		select {
-		case <-tc.drainNotify:
-		case <-ctx.Done():
-			return
+func (tc *TunnelClient) retireUnneeded(ctx context.Context, groups map[string]*KingGroup) {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+
+	for addr, kingConn := range tc.connections {
+		if _, needed := groups[addr]; needed {
+			continue
 		}
+
+		delete(tc.connections, addr)
+
+		go func() {
+			drainCtx, drainCancel := context.WithTimeout(
+				context.WithoutCancel(ctx),
+				streamDrainTimeout,
+			)
+			defer drainCancel()
+
+			drainAndClose(drainCtx, kingConn, "no longer needed")
+		}()
 	}
+}
+
+func drainAndClose(ctx context.Context, kingConn kingConnection, reason string) {
+	kingConn.streams.wait(ctx)
+
+	_ = kingConn.conn.CloseWithError(quicErrorCodeCloseClean, reason)
 }
 
 func readServiceID(stream *quic.Stream) (string, error) {
@@ -334,7 +348,7 @@ func handleDataStream(
 
 	go func() {
 		_, _ = io.Copy(localConn, stream)
-		_ = localConn.Close()
+		closeWrite(localConn)
 
 		close(done)
 	}()
@@ -345,15 +359,23 @@ func handleDataStream(
 	stream.CancelRead(0)
 
 	<-done
+
+	_ = localConn.Close()
 }
 
-func (tc *TunnelClient) closeAll() {
+func (tc *TunnelClient) closeAll(ctx context.Context) {
 	tc.mu.Lock()
-	defer tc.mu.Unlock()
+	kingConns := tc.connections
+	tc.connections = make(map[string]kingConnection)
+	tc.mu.Unlock()
 
-	for addr, conn := range tc.connections {
-		_ = conn.CloseWithError(quicErrorCodeCloseClean, "shutting down")
+	var drainWg sync.WaitGroup
 
-		delete(tc.connections, addr)
+	for _, kingConn := range kingConns {
+		drainWg.Go(func() {
+			drainAndClose(ctx, kingConn, "shutting down")
+		})
 	}
+
+	drainWg.Wait()
 }

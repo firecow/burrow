@@ -47,30 +47,15 @@ func startTestProxy(
 	ctx context.Context,
 	t *testing.T,
 	proxy *ling.TCPProxy,
-) net.Listener {
+) string {
 	t.Helper()
 
-	listenConfig := newTestListenConfig()
-
-	listener, err := listenConfig.Listen(ctx, "tcp", "127.0.0.1:0")
+	err := proxy.TestStart(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	proxy.TestSetListener(listener)
-
-	go func() {
-		for {
-			conn, acceptErr := listener.Accept()
-			if acceptErr != nil {
-				return
-			}
-
-			go proxy.TestHandleConn(ctx, conn)
-		}
-	}()
-
-	return listener
+	return proxy.TestListenerAddr()
 }
 
 func TestTCPProxy_RoundRobin(t *testing.T) {
@@ -94,11 +79,9 @@ func TestTCPProxy_RoundRobin(t *testing.T) {
 		ling.NewProxyTarget("127.0.0.1", addr2.Port),
 	})
 
-	listener := startTestProxy(ctx, t, proxy)
+	proxyAddr := startTestProxy(ctx, t, proxy)
 
-	defer proxy.TestClose()
-
-	proxyAddr := listener.Addr().String()
+	defer proxy.TestClose(ctx)
 
 	resp1 := dialAndSend(t, proxyAddr)
 	resp2 := dialAndSend(t, proxyAddr)
@@ -152,13 +135,16 @@ func TestTCPProxy_NoTargets(t *testing.T) {
 	ctx := context.Background()
 	proxy := ling.NewTCPProxy("test", 0)
 
-	listener := startTestProxy(ctx, t, proxy)
+	proxyAddr := startTestProxy(ctx, t, proxy)
 
-	defer proxy.TestClose()
+	closeCtx, closeCancel := context.WithTimeout(ctx, time.Second)
+	defer closeCancel()
+
+	defer proxy.TestClose(closeCtx)
 
 	dialer := newTestDialer(time.Second)
 
-	conn, err := dialer.DialContext(ctx, "tcp", listener.Addr().String())
+	conn, err := dialer.DialContext(ctx, "tcp", proxyAddr)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,6 +219,69 @@ func TestTCPProxy_UpdateTargets_PreservesInFlightConnections(t *testing.T) {
 	}
 }
 
+func TestTCPProxy_Close_DrainsInFlightConnections(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	backend, otherBackend := startEchoBackends(ctx, t)
+
+	defer func() { _, _ = backend.Close(), otherBackend.Close() }()
+
+	proxy := ling.NewTCPProxy("test", 0)
+	proxy.TestUpdateTargets(
+		[]ling.ProxyTarget{ling.NewProxyTarget("127.0.0.1", mustTCPAddr(t, backend).Port)},
+	)
+
+	proxyAddr := startTestProxy(ctx, t, proxy)
+	dialer := newTestDialer(time.Second)
+
+	conn, err := dialer.DialContext(ctx, "tcp", proxyAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+	buf := make([]byte, readBufferSize)
+
+	_, err = io.ReadFull(conn, buf[:len("backend1:")])
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	closeDone := make(chan struct{})
+
+	go func() {
+		proxy.TestClose(ctx)
+		close(closeDone)
+	}()
+
+	for {
+		probe, dialErr := dialer.DialContext(ctx, "tcp", proxyAddr)
+		if dialErr != nil {
+			break
+		}
+
+		_ = probe.Close()
+	}
+
+	_, _ = conn.Write([]byte("ping"))
+
+	_, err = io.ReadFull(conn, buf[:len("ping")])
+	if err != nil {
+		t.Fatalf("expected in-flight connection to survive drain: %v", err)
+	}
+
+	select {
+	case <-closeDone:
+		t.Fatal("expected close to wait for the in-flight connection")
+	default:
+	}
+
+	_ = conn.Close()
+
+	<-closeDone
+}
+
 func TestTCPProxy_Close_ClosesUpstreams(t *testing.T) {
 	t.Parallel()
 
@@ -244,7 +293,7 @@ func TestTCPProxy_Close_ClosesUpstreams(t *testing.T) {
 
 	proxy.TestTrackUpstream(testTargetAddr, client)
 
-	proxy.TestClose()
+	proxy.TestClose(t.Context())
 
 	_, err := client.Write([]byte("test"))
 	if err == nil {
