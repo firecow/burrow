@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -44,15 +45,30 @@ type stack struct {
 }
 
 func TestMain(m *testing.M) {
-	cmd := exec.Command("docker", "build", "-t", burrowImage, "-f", "Dockerfile", ".")
-	cmd.Dir = "../.."
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+	buildDir, err := os.MkdirTemp("", "burrow-integration")
+	if err != nil {
+		log.Fatalf("Failed to create build directory: %v", err)
+	}
+
+	goBuild := exec.Command("go", "build", "-o", filepath.Join(buildDir, "burrow"), "./cmd/burrow")
+	goBuild.Dir = "../.."
+	goBuild.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux")
+	goBuild.Stdout = os.Stdout
+	goBuild.Stderr = os.Stderr
+	if err := goBuild.Run(); err != nil {
+		log.Fatalf("Failed to build burrow binary: %v", err)
+	}
+
+	dockerBuild := exec.Command("docker", "build", "-t", burrowImage, "-f", "Dockerfile", buildDir)
+	dockerBuild.Stdout = os.Stdout
+	dockerBuild.Stderr = os.Stderr
+	if err := dockerBuild.Run(); err != nil {
 		log.Fatalf("Failed to build burrow image: %v", err)
 	}
 
-	os.Exit(m.Run())
+	code := m.Run()
+	os.RemoveAll(buildDir)
+	os.Exit(code)
 }
 
 func TestZeroDowntimeRedeployment(t *testing.T) {
