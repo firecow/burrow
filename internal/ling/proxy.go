@@ -36,6 +36,8 @@ type TCPProxy struct {
 	targets    []ProxyTarget
 	counter    atomic.Uint64
 	listener   net.Listener
+	acceptDone chan struct{}
+	clients    *activity
 	closeOnce  sync.Once
 	hasTargets chan struct{}
 
@@ -52,6 +54,8 @@ func NewTCPProxy(name string, bindPort int) *TCPProxy {
 		targets:    nil,
 		counter:    atomic.Uint64{},
 		listener:   nil,
+		acceptDone: make(chan struct{}),
+		clients:    newActivity(),
 		closeOnce:  sync.Once{},
 		hasTargets: make(chan struct{}),
 		upstreamMu: sync.Mutex{},
@@ -135,14 +139,24 @@ func (proxy *TCPProxy) start(ctx context.Context) error {
 		"name", proxy.name, "bind_port", proxy.bindPort,
 	)
 
+	serveCtx := context.WithoutCancel(ctx)
+
 	go func() {
+		defer close(proxy.acceptDone)
+
 		for {
 			conn, acceptErr := listener.Accept()
 			if acceptErr != nil {
 				return
 			}
 
-			go proxy.handleConn(ctx, conn)
+			proxy.clients.begin()
+
+			go func() {
+				defer proxy.clients.end()
+
+				proxy.handleConn(serveCtx, conn)
+			}()
 		}
 	}()
 
@@ -170,13 +184,22 @@ func (proxy *TCPProxy) handleConn(
 
 	go func() {
 		_, _ = io.Copy(upstream, clientConn)
+		closeWrite(upstream)
 
 		close(done)
 	}()
 
 	_, _ = io.Copy(clientConn, upstream)
+	closeWrite(clientConn)
 
 	<-done
+}
+
+func closeWrite(conn net.Conn) {
+	tcpConn, isTCP := conn.(*net.TCPConn)
+	if isTCP {
+		_ = tcpConn.CloseWrite()
+	}
 }
 
 func (proxy *TCPProxy) dialUpstream(
@@ -239,11 +262,15 @@ func (proxy *TCPProxy) waitForTarget() (ProxyTarget, bool) {
 	}
 }
 
-func (proxy *TCPProxy) close() {
+func (proxy *TCPProxy) close(ctx context.Context) {
 	proxy.closeOnce.Do(func() {
 		if proxy.listener != nil {
 			_ = proxy.listener.Close()
+
+			<-proxy.acceptDone
 		}
+
+		proxy.clients.wait(ctx)
 
 		proxy.mu.Lock()
 

@@ -40,8 +40,9 @@ type containerSpec struct {
 }
 
 type stack struct {
-	network    testcontainers.Network
-	containers map[string]testcontainers.Container
+	network     testcontainers.Network
+	containers  map[string]testcontainers.Container
+	retiredLogs []string
 }
 
 func TestMain(m *testing.M) {
@@ -92,6 +93,18 @@ func TestZeroDowntimeRedeployment(t *testing.T) {
 		}
 		if err := s.network.Remove(context.Background()); err != nil {
 			t.Logf("Failed to remove network: %v", err)
+		}
+	})
+
+	t.Cleanup(func() {
+		if !t.Failed() {
+			return
+		}
+		for _, retired := range s.retiredLogs {
+			t.Log(retired)
+		}
+		for name, c := range s.containers {
+			t.Log(containerLogs(ctx, name, c))
 		}
 	})
 
@@ -192,37 +205,26 @@ func TestZeroDowntimeRedeployment(t *testing.T) {
 	})
 }
 
-type restartFunc func(t *testing.T, ctx context.Context, s *stack, name string)
+type restartFunc func(t *testing.T, ctx context.Context, s *stack, name string, target *atomic.Pointer[string])
 
 func restartSubtest(t *testing.T, ctx context.Context, s *stack, name string, restart restartFunc) {
 	var errors atomic.Int64
 	var total atomic.Int64
+	var target atomic.Pointer[string]
 	stop := make(chan struct{})
+	finished := make(chan struct{})
 
-	oldProxyURL := mappedProxyURL(t, ctx, s.containers["ling-beta"])
-	go trafficMonitor(oldProxyURL, &errors, &total, stop)
+	proxyURL := mappedProxyURL(t, ctx, s.containers["ling-beta"])
+	target.Store(&proxyURL)
+	go trafficMonitor(&target, &errors, &total, stop, finished)
 
-	restart(t, ctx, s, name)
+	restart(t, ctx, s, name, &target)
 
-	newProxyURL := mappedProxyURL(t, ctx, s.containers["ling-beta"])
-
-	if newProxyURL != oldProxyURL {
-		// Proxy container was restarted — stop old monitor, reset counters, start new
-		close(stop)
-		time.Sleep(pollInterval * 2)
-		errors.Store(0)
-		total.Store(0)
-		stop = make(chan struct{})
-
-		waitForTraffic(t, newProxyURL, 60*time.Second)
-		go trafficMonitor(newProxyURL, &errors, &total, stop)
-	} else {
-		waitForTraffic(t, newProxyURL, 60*time.Second)
-	}
+	waitForTraffic(t, *target.Load(), 60*time.Second)
 
 	time.Sleep(stabilizeDelay)
 	close(stop)
-	time.Sleep(pollInterval * 2)
+	<-finished
 
 	t.Logf("%s restart: %d/%d requests failed", name, errors.Load(), total.Load())
 	require.Zero(
@@ -235,27 +237,44 @@ func restartSubtest(t *testing.T, ctx context.Context, s *stack, name string, re
 	)
 }
 
-func restartStopFirst(t *testing.T, ctx context.Context, s *stack, name string) {
-	old := s.containers[name]
-	spec := specForContainer(name)
+func restartStopFirst(t *testing.T, ctx context.Context, s *stack, name string, _ *atomic.Pointer[string]) {
+	retire(t, ctx, s, name)
 
-	require.NoError(t, old.Terminate(ctx))
-	delete(s.containers, name)
+	s.containers[name] = startContainer(t, ctx, specForContainer(name))
+}
 
-	c := startContainer(t, ctx, spec)
+func restartStartFirst(t *testing.T, ctx context.Context, s *stack, name string, target *atomic.Pointer[string]) {
+	c := startContainer(t, ctx, specForContainer(name))
+
+	if name == "ling-beta" {
+		newProxyURL := mappedProxyURL(t, ctx, c)
+		waitForTraffic(t, newProxyURL, 60*time.Second)
+		target.Store(&newProxyURL)
+	}
+
+	retire(t, ctx, s, name)
+
 	s.containers[name] = c
 }
 
-func restartStartFirst(t *testing.T, ctx context.Context, s *stack, name string) {
+func retire(t *testing.T, ctx context.Context, s *stack, name string) {
 	old := s.containers[name]
-	spec := specForContainer(name)
 
-	c := startContainer(t, ctx, spec)
-
+	require.NoError(t, old.Stop(ctx, nil))
+	s.retiredLogs = append(s.retiredLogs, containerLogs(ctx, name+" (retired)", old))
 	require.NoError(t, old.Terminate(ctx))
 	delete(s.containers, name)
+}
 
-	s.containers[name] = c
+func containerLogs(ctx context.Context, name string, c testcontainers.Container) string {
+	reader, err := c.Logs(ctx)
+	if err != nil {
+		return fmt.Sprintf("=== %s: failed to read logs: %v", name, err)
+	}
+	defer reader.Close()
+
+	logs, _ := io.ReadAll(reader)
+	return fmt.Sprintf("=== %s\n%s", name, logs)
 }
 
 func specForContainer(name string) containerSpec {
@@ -380,7 +399,9 @@ func waitForTraffic(t *testing.T, url string, timeout time.Duration) {
 	t.Fatalf("Traffic did not start flowing through proxy within %s", timeout)
 }
 
-func trafficMonitor(url string, errors, total *atomic.Int64, stop chan struct{}) {
+func trafficMonitor(target *atomic.Pointer[string], errors, total *atomic.Int64, stop, finished chan struct{}) {
+	defer close(finished)
+
 	client := &http.Client{Timeout: 10 * time.Second}
 
 	for {
@@ -392,7 +413,7 @@ func trafficMonitor(url string, errors, total *atomic.Int64, stop chan struct{})
 
 		total.Add(1)
 
-		resp, err := client.Get(url)
+		resp, err := client.Get(*target.Load())
 		if err != nil {
 			errors.Add(1)
 			log.Printf("traffic error: %v", err)

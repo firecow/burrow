@@ -20,19 +20,19 @@ func (proxy *TCPProxy) TestUntrackUpstream(addr string, conn net.Conn) {
 	proxy.untrackUpstream(addr, conn)
 }
 
-// TestHandleConn exposes handleConn for external tests.
-func (proxy *TCPProxy) TestHandleConn(ctx context.Context, conn net.Conn) {
-	proxy.handleConn(ctx, conn)
+// TestStart exposes start for external tests.
+func (proxy *TCPProxy) TestStart(ctx context.Context) error {
+	return proxy.start(ctx)
 }
 
 // TestClose exposes close for external tests.
-func (proxy *TCPProxy) TestClose() {
-	proxy.close()
+func (proxy *TCPProxy) TestClose(ctx context.Context) {
+	proxy.close(ctx)
 }
 
-// TestSetListener sets the listener field for external tests.
-func (proxy *TCPProxy) TestSetListener(listener net.Listener) {
-	proxy.listener = listener
+// TestListenerAddr returns the address the proxy listens on.
+func (proxy *TCPProxy) TestListenerAddr() string {
+	return proxy.listener.Addr().String()
 }
 
 // TestUpstreamCount returns the number of tracked upstreams for a given address.
